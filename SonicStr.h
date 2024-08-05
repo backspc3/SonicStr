@@ -11,7 +11,7 @@ namespace Sonic
 {
 
 // Internal comparison function which tries to use SIMD operations for string comparison.
-static SONICSTR_INLINE bool StrCmp( const char* aStr, const char* bStr, size_t aLen )
+static SONICSTR_INLINE bool SIMDStrCmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
 {
 #ifdef __AVX2__
     // 32 byte blocks.
@@ -122,6 +122,19 @@ static SONICSTR_INLINE bool StrCmp( const char* aStr, const char* bStr, size_t a
     }
 
     return true;
+}
+
+// We dont do any sanity checks. We dont check if any
+// of the forwarded strings are NULL. We also expect
+// both strings have to be the same length.
+static SONICSTR_INLINE bool StrCmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
+{
+    // Compare first character, if different simply ignore
+    // and move on....
+    if(*aStr != *bStr)
+        return false;
+        
+    return SIMDStrCmp( aStr, bStr, aLen );
 }
 
 }
