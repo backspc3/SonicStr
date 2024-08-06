@@ -301,14 +301,15 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
     }
 
 #endif//__SSE2__
-
-    /// SWAR BLOCK.
+/*
+    // I think this doesnt work...
+    /// @ TODO(BAK): IMPLEMENT SWAR BLOCK.
     const unsigned long long swar_search_char_v = 0x0101010101010101llu * (unsigned char)c;
     
     while(len > 8)
     {    
         const unsigned long long current_block_v = *((const unsigned long long* const)str);
-        const unsigned long long mask = swar_search_char_v & current_block_v;
+        const unsigned long long mask = swar_search_char_v ^ current_block_v;
         
         if(mask != 0)
         {
@@ -319,7 +320,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
         str += 8;
         len -= 8;
     }
-
+*/
     // Make sure to linearly check remaining bytes...
     while(len > 0)
     {
