@@ -163,8 +163,12 @@ static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, si
     for(size_t i = 0; i < len; i += 32)
     {
         // Extract chunks
-        const __m256i str_block_first = _mm256_loadu_si256( (const __m256i*) str + i  );
-        const __m256i str_block_last  = _mm256_loadu_si256( (const __m256i*) str + i + needle_len - 1);
+        //const __m256i str_block_first = _mm256_loadu_si256( (const __m256i*) str + i  );
+        //const __m256i str_block_last  = _mm256_loadu_si256( (const __m256i*) str + i + needle_len - 1);
+
+        const __m256i str_block_first = _mm256_loadu_si256( (const __m256i*)(str + i) );
+        const __m256i str_block_last  = _mm256_loadu_si256( (const __m256i*)(str + i + needle_len - 1) );
+
     
         // Compare extracted chunks with our character vectors
         // holdin the first and last letters of the needle.
