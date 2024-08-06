@@ -315,7 +315,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
         str += 8;
         len -= 8;
     }
-    
+
     // Make sure to linearly check remaining bytes...
     while(len > 0)
     {
