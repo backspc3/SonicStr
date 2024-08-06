@@ -12,6 +12,8 @@
 namespace Sonic
 {
 
+static constexpr size_t npos = -1;
+
 // Internal comparison function which tries to use SIMD operations for string comparison.
 static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
 {
@@ -149,7 +151,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR unsigned get_first_bit_set(const T val
 
 // Based on:
 // http://0x80.pl/articles/simd-strfind.html
-static SONICSTR_INLINE SONICSTR_CONSTEXPR size_t simd_swar_str_contains_needle( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
+static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
 {
 #ifdef __AVX2__
 
@@ -170,7 +172,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR size_t simd_swar_str_contains_needle( 
         const __m256i equality_last  = _mm256_cmpeq_epi8( needle_last_char_v, str_block_last );
 
         // With this mask we extract the positions where we match with out needles first/last characters.    
-        unsigned int mask = _m256_movemask_epi8( _mm256_and_si256( equality_first, equality_last ) );
+        unsigned int mask = _mm256_movemask_epi8( _mm256_and_si256( equality_first, equality_last ) );
     
         // While mask contains any set bits it means there are still possible locations
         // where we can find the needle.
@@ -180,7 +182,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR size_t simd_swar_str_contains_needle( 
             const auto bit_pos = ::Sonic::get_first_bit_set( mask );
             
             // If needle maatches we have found it inside the chunk.
-            if( memcmp( s + i + bit_pos + 1, needle + 1, needle_len - 2 ) == 0)
+            if( memcmp( str + i + bit_pos + 1, needle + 1, needle_len - 2 ) == 0)
                 return i + bit_pos;
         
             // If not, we clear given flagged position removing its set state.
@@ -190,7 +192,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR size_t simd_swar_str_contains_needle( 
 
     // If we reach this, it means needle was not found :(
     // Highest possible size_t value.
-    return -1;
+    return ::Sonic::npos;
 #else
     // If we cant find AVX instruction set, fallback to SWAR for now...
     
@@ -228,10 +230,103 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR size_t simd_swar_str_contains_needle( 
     }
 
     // Highest possible size_t value.
-    return -1;
+    return ::Sonic::npos;
 #endif
 }
 
+// Searches for first ocurrence of given char in string.
+static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
+{
+
+    // Build a vector formed with given char.
+    // Then iterate blocks.
+    // AND both vector and block
+    // If can find ocurrances in mask
+    // return leftmost ocurrance of character.
+
+    const char* const start_ptr = str;
+
+    // First attemp at finding.
+#ifdef  __AVX2__
+
+    // Populate vector with to search character
+    const __m256i avx_search_char_v = _mm256_set1_epi8( c );
+
+    while(len > 32)
+    {
+        // Extract current block and populate vector.
+        const __m256i current_block_vector = _mm256_loadu_si256( (const __m256i*)str );
+        // compare our character vector with current block.
+        const __m256i equality = _mm256_cmpeq_epi8( avx_search_char_v, current_block_vector );
+        // generate mask out of comparison result
+        const unsigned int mask = _mm256_movemask_epi8( equality );
+    
+        // if mask if not zero, we have found character == c
+        // so we return first bit set.
+        if(mask != 0)
+        {
+            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
+            return (size_t)bit_pos;
+        }
+    
+        str += 32;
+        len -= 32;
+    }
+
+#endif//__AVX2__
+
+#ifdef  __SSE2__
+    
+    const __m128i sse_search_char_v = _mm_set1_epi8( c );
+
+    while(len > 16)
+    {
+        const __m128i current_block_v = _mm_loadu_epi8( (const void*)str );
+        const __m128i equality = _mm_cmpeq_epi( sse_search_char_v, current_block_v );
+    
+        const unsigned int mask = _mm_movemask_epi8(equality); 
+        
+        if(mask != 0)
+        {
+            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
+            return (size_t)bit_pos;
+        }
+    
+        str += 16;
+        len -= 16;
+    }
+
+#endif//__SSE2__
+
+    /// SWAR BLOCK.
+    const unsigned long long swar_search_char_v = 0x0101010101010101llu * (unsigned char)c;
+    
+    while(len > 8)
+    {    
+        const unsigned long long current_block_v = *((const unsigned long long* const)str);
+        const unsigned long long mask = swar_search_char_v & current_block_v;
+        
+        if(mask != 0)
+        {
+            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
+            return (size_t)bit_pos;
+        }
+    
+        str += 8;
+        len -= 8;
+    }
+    
+    // Make sure to linearly check remaining bytes...
+    while(len > 0)
+    {
+        if(*str++ == c)
+            return (str - start_ptr);
+        len--;
+    }
+ 
+    // If cant find, return ::Sonic::npos or highest possible size_t val.
+    return ::Sonic::npos;
+}
 
 // We dont do any sanity checks. We dont check if any
 // of the forwarded strings are NULL. We also expect
@@ -247,17 +342,23 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp( const char* aStr, const 
     return simd_str_cmp( aStr, bStr, aLen );
 }
 
+static SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
+{
+    const size_t idx = simd_swar_str_chr( str, len, c );
+    return ( idx != ::Sonic::npos ) ? (char*)(str + idx) : nullptr; 
+}
+
 // Looks for needle of len ´needle_len´ in string of len ´len´.
 // If needle is found, will return pointer to provided string
 // at begin of found needle, else will return nullptr.
-static SONICSTR_INLINE SONICSTR_CONSTEXPR char* str_str( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
+static SONICSTR_INLINE char* str_str( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
 {
     // Call to find needle. using underlying Sonic function.
     size_t idx = ::Sonic::simd_swar_str_contains_needle( str, len, needle, needle_len );
 
     // If needle is found, return pointer to string at found needle position.
     // If needle is not found, return nullptr.
-    return (idx != -1) ? (char*)(str + idx) : nullptr;
+    return (idx != ::Sonic::npos) ? (char*)(str + idx) : nullptr;
 }
 
 

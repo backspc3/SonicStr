@@ -24,6 +24,7 @@ int main(int argc, char** argv)
     print_bool( res );
     
     print_bool(Sonic::str_str(haystack, haystack_len, needle, needle_len ));
+    print_bool(Sonic::str_chr(haystack, haystack_len, 'Z'));
     
     return 0;
 }
