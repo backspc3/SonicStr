@@ -25,6 +25,10 @@ int main(int argc, char** argv)
     
     print_bool(Sonic::str_str(haystack, haystack_len, needle, needle_len ));
     print_bool(Sonic::str_chr(haystack, haystack_len, 'Z'));
+
+    size_t nelen = Sonic::simd_swar_str_len( haystack );
+    
+    printf("SIMD: %zu, NON SIMD: %zu\n", nelen, haystack_len);
     
     return 0;
 }

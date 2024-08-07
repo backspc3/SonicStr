@@ -1,7 +1,29 @@
 #ifndef SONICSTR_H
 #define SONICSTR_H
 
+// Checks for SSE2 and AVX2 ....!!!
+#if defined(_MSC_VER) // Check if using MSVC
+    #if defined(_M_IX86_FP) && _M_IX86_FP >= 2
+        #define SSE2_SUPPORTED
+    #endif
+#elif defined(__GNUC__) // Check if using GCC
+    #if defined(__SSE2__)
+        #define SSE2_SUPPORTED
+    #endif
+#endif
+
+#if defined(_MSC_VER) 
+    #if defined(__AVX2__)
+        #define AVX2_SUPPORTED
+    #endif
+#elif defined(__GNUC__)
+    #if defined(__AVX2__)
+        #define AVX2_SUPPORTED
+    #endif
+#endif
+
 #include <immintrin.h>
+#include <stdio.h>
 #include <cstring>
 #include <bit>
 
@@ -17,7 +39,7 @@ static constexpr size_t npos = -1;
 // Internal comparison function which tries to use SIMD operations for string comparison.
 static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
 {
-#ifdef __AVX2__
+#ifdef AVX2_SUPPORTED
     // 32 byte blocks.
     while (aLen > 32)
     {
@@ -59,7 +81,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
     }
 #endif//__AVX2__
 
-#ifdef __SSE2__
+#ifdef SSE2_SUPPORTED
     while (aLen > 16)
     {
         // Works like AVX but with 128 bits instead of 256.
@@ -153,7 +175,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR unsigned get_first_bit_set(const T val
 // http://0x80.pl/articles/simd-strfind.html
 static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
 {
-#ifdef __AVX2__
+#ifdef AVX2_SUPPORTED
 
     // Vectors holding first and last characters of needle
     const __m256i needle_first_char_v = _mm256_set1_epi8( needle[0] );              // At begin - 0
@@ -251,7 +273,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
     const char* const start_ptr = str;
 
     // First attemp at finding.
-#ifdef  __AVX2__
+#ifdef  AVX2_SUPPORTED
 
     // Populate vector with to search character
     const __m256i avx_search_char_v = _mm256_set1_epi8( c );
@@ -279,8 +301,8 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
 
 #endif//__AVX2__
 
-#ifdef  __SSE2__
-    
+#ifdef  SSE2_SUPPORTED
+
     const __m128i sse_search_char_v = _mm_set1_epi8( c );
 
     while(len > 16)
@@ -319,7 +341,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
     
         str += 8;
         len -= 8;
-    }
+    
 */
     // Make sure to linearly check remaining bytes...
     while(len > 0)
@@ -331,6 +353,73 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
  
     // If cant find, return ::Sonic::npos or highest possible size_t val.
     return ::Sonic::npos;
+}
+
+static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEXCEPT
+{
+
+    size_t len = 0;
+
+#ifdef AVX2_SUPPORTED
+
+    // Load 32 bytes at once
+    // We do not care if mem loading is out of bounds, since
+    // we are not writing in memory, we are simply reading and 
+    // querying for NULL bytes. So if string is of size 6 + 1(NULL BYTE) lets say
+    // we load it:
+    
+    // 'H' 'E' 'L' 'L' 'O' '!' '0' ... (garbage)
+    // VECTOR=( H E L L O ! 0 G x Z 0 g H f Z ...)
+    // still easy to find - ^
+    // Since we are querying for first appearing 0 byte
+    // we simply dont care about all that extra garbage
+    // we load.
+
+    const __m256i zero_vec = _mm256_setzero_si256();
+    // I dont know how to do this... safety check????
+    while(*str != 0)
+    {
+        const __m256i str_vec  = _mm256_loadu_si256( (const __m256i*)str );        
+        const __m256i equality = _mm256_cmpeq_epi8( zero_vec, str_vec );
+        const unsigned int mask = _mm256_movemask_epi8( equality );
+        if(mask != 0)
+            return len + ::Sonic::get_first_bit_set(mask);
+        str += 32;
+        len += 32;
+    }
+    return 0;
+    // I trust that we have SSE 2 on most modern x86 CPUS.
+#elif defined(SSE2_SUPPORTED)
+
+    const __m128i zero_vec = _mm_setzero_si128();
+    // I dont know how to do this... safety check????
+    while(*str != 0)
+    {
+        const __m128i str_vec  = _mm_loadu_epi8( (const void*)str );        
+        const __m128i equality = _mm_cmpeq_epi8( zero_vec, str_vec );
+        const unsigned int mask = _mm_movemask_epi8( equality );
+        if(mask != 0)
+            return len + ::Sonic::get_first_bit_set(mask);
+        str += 16;
+        len += 16;
+    }
+    
+    return 0;
+#else
+
+    // @ TODO: SWAR impl using zero in word trick:
+    // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+
+    // Linear for now.
+    while(*str != 0)
+    {
+        str++;
+        len++;
+    }
+    
+    return len;
+
+#endif//
 }
 
 // We dont do any sanity checks. We dont check if any
@@ -345,6 +434,19 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp( const char* aStr, const 
         return false;
         
     return simd_str_cmp( aStr, bStr, aLen );
+}
+
+static SONICSTR_INLINE size_t str_len( const char* str ) SONICSTR_NOEXCEPT
+{
+    return simd_swar_str_len( str );
+}
+
+// Checks for NULL INPUT...
+static SONICSTR_INLINE size_t str_len_s( const char* str ) SONICSTR_NOEXCEPT
+{
+    if(!str)
+        return 0;
+    return simd_str_cmp( str );
 }
 
 static SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
