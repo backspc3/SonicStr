@@ -1,5 +1,5 @@
 # SonicStr
-SIMD accelerated string operations for C++
+SIMD accelerated string operations for C++. Fast like Sonic :3
 
 ## Thingies
 
