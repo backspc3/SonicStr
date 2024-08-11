@@ -22,12 +22,19 @@
     #endif
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+    #define SONICSTR_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER) && !defined(__clang__)
+    #define SONICSTR_INLINE __forceinline
+#else
+    #define SONICSTR_INLINE inline
+#endif
+
 #include <immintrin.h>
 #include <stdio.h>
 #include <cstring>
 #include <bit>
 
-#define SONICSTR_INLINE     inline
 #define SONICSTR_NOEXCEPT   noexcept
 #define SONICSTR_CONSTEXPR  constexpr
 
@@ -473,6 +480,366 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, cons
     // I hope the compiler inlines this <3
     return ::Sonic::str_cmp( aStr, bStr, aLen );
 }
+
+// Forward declare for string ops.
+struct StringBase;
+
+// Holds weak view into a Sonic string. This serves an important purpose:
+// -  It makes copying Sonic strings more lightweight, allowing for
+//    all the required operations we may desire, without carrying the burden
+//    of the SSO data that bloats original Sonic strings.
+
+// It is important to note that stringviews do not manage any lifetimes meaning:
+// - They do not allocate anything when created.
+// - They do not deallocate anything when destroyed.
+// - They do not in any way prevent the destruction of the original data.
+// - They do not prevent other threads of execution from destroying the
+//   original/parent string which actually holds/manages the data which the view
+//   points into.
+// - They dont allow to modify the original string data, only gives us a view into
+//   said data.
+
+// All this together means we can pass StringViews as values without worrying about copying or anything.
+struct StringView
+{
+    StringView( const StringBase& other )
+    {
+        construct_pointer_and_len(other);        
+    }
+
+
+    SONICSTR_INLINE StringView( const StringView& other ) SONICSTR_NOEXCEPT
+        : m_data( other.m_data), m_len( other.m_len )
+    {
+    }
+
+    SONICSTR_INLINE StringView& operator=( const StringView& other) SONICSTR_NOEXCEPT
+    {
+        m_data = other.m_data; 
+        m_len  = other.m_len;
+        return *this;
+    }
+
+    SONICSTR_INLINE StringView( StringView&& other ) SONICSTR_NOEXCEPT
+        : m_data( std::move(other.m_data) ), 
+          m_len(  std::move(other.m_len) )
+    {
+        other.m_data = nullptr;
+    }
+
+
+    SONICSTR_INLINE StringView& operator=( StringView&& other) SONICSTR_NOEXCEPT
+    {
+        m_data = std::move(other.m_data); 
+        m_len  = std::move(other.m_len);
+        other.m_data = nullptr;
+        return *this;
+    }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR const char* const c_str() const SONICSTR_NOEXCEPT { return static_cast<const char* const>(m_data); }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT { return m_len; }
+
+    template<typename type_t>
+    SONICSTR_INLINE bool contains(type_t& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        auto at = find( substr, pos );
+        return at != Sonic::npos;    
+    }
+
+    // C string substring search.
+    SONICSTR_INLINE size_t find(const char* substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
+    }
+
+    // Other Sonic strings.
+    SONICSTR_INLINE size_t find(StringView substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
+    }
+
+    // Characters.
+    SONICSTR_INLINE size_t find(char c, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_chr( m_data + pos, m_len - pos, c );
+    }
+
+
+private:
+    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT;
+
+    const char*    m_data;
+    unsigned short m_len;
+};
+
+
+// String base defines the base interface from which all template specialized Sonic strings
+// derive from. The way sonic string works is based on Ocornuts Str: https://github.com/ocornut/str
+
+// We have a base class which manages some string data. Said string data has two possible states:
+// - "local" or non heap allocated.
+// - Heap allocated.
+
+// When we say "local" we mean that the internal data pointer will point to some statically allocated
+// data contained by the string itself, allowing for the creation and destruction of strings with no
+// heap in between. This is called SSO or small string optimization.
+// In this specific instance, we use a base class which holds a member variable called SSO_SIZE, which is provided
+// by the "child" class. This allows for customization of how much data we want to allow strings to hold before doing
+// heap allocations.
+// We basically trade off the size of the string, and therefore its cache locality for the avoidance of dynamic memory
+// allocations. This is useful in those cases where we may want to avoid heap allocations where possible.
+struct StringBase
+{
+
+public:
+
+    // This number is used to construct the growth factor of the string on heap grows.
+    // In this case we have a amortized growth of 1.5 -> (SELF + SELF / 2).
+    // In the case of 2.0 rate -> (SElF + SELF / 1 ).
+    static const SONICSTR_CONSTEXPR size_t grow_divisor = 2;
+
+    explicit SONICSTR_INLINE SONICSTR_CONSTEXPR StringBase( unsigned short sz ) SONICSTR_NOEXCEPT
+        : m_sso_size(sz), m_data(nullptr), m_len(0)
+    {}
+
+    SONICSTR_INLINE StringBase( const StringBase& other ) SONICSTR_NOEXCEPT
+        : m_sso_size( other.m_sso_size ) 
+    {
+        set_str( other );
+    }
+
+    SONICSTR_INLINE StringBase& operator=( const StringBase& other) SONICSTR_NOEXCEPT
+    {
+        set_str( other );
+        return *this;
+    }
+
+    SONICSTR_INLINE ~StringBase()
+    {
+        internal_free(m_data);
+    }
+
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( const char* str ) SONICSTR_NOEXCEPT
+    {
+        const size_t strlen = static_cast<unsigned short>( ::Sonic::str_len( str ) );
+        do_set( str, strlen );
+    }
+    
+    
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( const char* str, size_t strlen ) SONICSTR_NOEXCEPT
+    {
+        do_set( str, strlen );
+    }
+
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( const ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
+    {
+        do_set( str.c_str(), str.len() );
+    }
+    
+    
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+    {
+        do_set( str.c_str(), str.len() );
+    }
+
+    SONICSTR_INLINE void do_set( const char* str, size_t strlen ) SONICSTR_NOEXCEPT
+    {
+        // safe internal free.
+        internal_free( m_data );
+        
+        // Compute string length.
+        m_len = strlen;
+        m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
+        
+        // Copy data over.
+        memcpy( m_data, str, m_len + 1 );    
+    }
+    
+    // Append c string.
+    SONICSTR_INLINE void append( const char* str ) SONICSTR_NOEXCEPT
+    {
+        const unsigned short strlen = static_cast<unsigned short>( Sonic::str_len(str) );
+        do_append( str, strlen );
+    }
+    
+    SONICSTR_INLINE void append( ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
+    {
+        do_append( str.c_str(), str.len() );
+    }
+    
+    SONICSTR_INLINE void append( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+    {
+        do_append( str.c_str(), str.len() );
+    }
+
+    SONICSTR_INLINE void do_append( const char* strptr, unsigned short strlen ) SONICSTR_NOEXCEPT
+    {
+        const unsigned short newlen = m_len + strlen;
+
+        // If appending to local buf string.
+        if(is_data_local())
+        {
+            char* old_ptr = m_data;        
+
+            // Check if new string now requires heap memory.
+            if(newlen > m_sso_size)
+            {
+                // If so, reallocate with heap mem.
+                m_data = static_cast<char*>(malloc( newlen + 1 ));
+                memcpy( m_data, old_ptr, m_len );
+                m_cap = newlen + 1;
+            }
+            
+            memcpy( m_data + m_len, strptr, strlen );
+            m_len = newlen;
+            m_data[newlen] = 0;
+        } 
+        else // If buffer is already heap allocated. 
+        {
+            // If appending new string makes us go above capacity.
+            // grow buffer amortized until it fits.
+            while(newlen > m_cap) grow_amortized();
+            
+            memcpy( m_data + m_len, strptr, strlen );
+            m_data[ newlen ] = 0;
+            m_len = newlen;
+        }    
+    }
+    
+    SONICSTR_INLINE SONICSTR_CONSTEXPR bool compare(const StringBase& other) SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::str_cmp( m_data, other.m_data, m_len );
+    }
+
+    // ALL FIND OVERLOADS.
+    
+    // C string substring search.
+    SONICSTR_INLINE size_t find(const char* substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
+    }
+
+    // Other Sonic strings.
+    SONICSTR_INLINE size_t find(StringView substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
+    }
+
+    // Characters.
+    SONICSTR_INLINE size_t find(char c, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_chr( m_data + pos, m_len - pos, c );
+    }
+    
+    // All contains overloads.
+
+    // Templated but only works with types which have find implemented.
+    template<typename type_t>
+    SONICSTR_INLINE bool contains(type_t& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        auto at = find( substr, pos );
+        return at != Sonic::npos;    
+    }
+    
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT { return m_len; }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len()       SONICSTR_NOEXCEPT { return m_len; }
+
+    //SONICSTR_INLINE SONICSTR_CONSTEXPR char*       c_str()       SONICSTR_NOEXCEPT { return m_data; }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR const char* c_str() const SONICSTR_NOEXCEPT { return m_data; }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t cap()       SONICSTR_NOEXCEPT { return m_cap; }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t cap() const SONICSTR_NOEXCEPT { return m_cap; }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR       char& operator[](size_t index)       SONICSTR_NOEXCEPT { return m_data[index]; }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR const char& operator[](size_t index) const SONICSTR_NOEXCEPT { return m_data[index]; }    
+    
+    SONICSTR_INLINE bool is_sso()       SONICSTR_NOEXCEPT { return is_data_local(); }
+
+protected:
+
+    SONICSTR_INLINE bool is_data_local() SONICSTR_NOEXCEPT
+    {
+        return m_data == (reinterpret_cast<char*>(this) + sizeof(StringBase));
+    }    
+
+    SONICSTR_INLINE void grow_amortized() SONICSTR_NOEXCEPT
+    {
+        const size_t newsize = m_cap + (m_cap / grow_divisor);
+        const char* const old_ptr = m_data;
+        m_data = static_cast<char*>(malloc( newsize + 1 ));
+        memcpy( m_data, old_ptr, m_len );
+        m_data[newsize] = 0;
+        m_cap = newsize;
+    }
+
+    // Allocates string storage, either returning pointer to SSO data
+    // or heap allocated buffer.
+    SONICSTR_INLINE char* internal_alloc( unsigned short size ) SONICSTR_NOEXCEPT
+    {
+        // If the requested data fits inside of SSO size
+        if( size <= m_sso_size )
+        {
+            m_cap = m_sso_size;
+            return reinterpret_cast<char*>(this) + sizeof(StringBase);
+        }
+    
+        m_cap = size;
+        return static_cast<char*>(malloc( size ));
+    }
+    
+    SONICSTR_INLINE void internal_free( char* data ) SONICSTR_NOEXCEPT
+    {
+        if(m_data && !is_data_local())
+            free(m_data);
+    }
+
+    char* m_data;
+    unsigned short m_len;
+    unsigned short m_cap;
+    unsigned short m_sso_size;
+};
+
+SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT
+{
+    m_data = other.c_str();
+    m_len = other.len();
+}
+
+// Helper..
+#define SonicStringConstructor( __Type ) \
+    String( __Type str ) : StringBase(sz_t) \
+    { \
+        set_str(str); \
+    }
+
+template<unsigned short sz_t>
+struct String : public StringBase
+{
+    static_assert( sz_t % 2 == 0 );
+    
+    // All constructors must call StringBase with provided 
+    // sso size.
+    SonicStringConstructor(const char*)
+    SonicStringConstructor(const ::Sonic::StringBase&)
+    SonicStringConstructor(::Sonic::StringView)
+
+private:
+    char __buf[sz_t];
+
+};
+
+using String8    = ::Sonic::String<8>;
+using String16   = ::Sonic::String<16>;
+using String32   = ::Sonic::String<32>;
+using String64   = ::Sonic::String<64>;
+using String128  = ::Sonic::String<128>;
+using String256  = ::Sonic::String<256>;
+using String512  = ::Sonic::String<512>;
+using String1024 = ::Sonic::String<1024>;
 
 }
 

@@ -39,5 +39,30 @@ int main(int argc, char** argv)
     
     printf("SIMD: %zu, NON SIMD: %zu\n", nelen, haystack_len);
     
+    Sonic::String16 sampleA("IamTheBestA");
+    Sonic::String16 sampleB("IamTheBestB");
+    print_bool( sampleA.compare(sampleB) );
+    
+    printf("SIZES: (8 - %zu)  (16 - %zu)   (32 - %zu)\n       (64 - %zu) (128 - %zu) (256 - %zu)\n", 
+        sizeof(Sonic::String8), sizeof(Sonic::String16), sizeof(Sonic::String32),
+        sizeof(Sonic::String64), sizeof(Sonic::String128), sizeof(Sonic::String256));
+
+    print_bool( sampleA.contains(sampleB) );
+
+    const char* toAP = "WeAreTheBest";
+    printf("append: %zu\n", strlen(toAP));
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+    sampleA.append(toAP);
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+    sampleA.append(toAP);
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+
+    Sonic::String32 test(sampleB);
+
+    printf("Before: %s\n", sampleB.c_str());
+    sampleB = sampleA;
+    printf("After: %s\n", sampleB.c_str());
+    printf("%s\n", test.c_str());
+        
     return 0;
 }
