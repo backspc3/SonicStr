@@ -409,16 +409,22 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
 
     // @ TODO: SWAR impl using zero in word trick:
     // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+    const unsigned long long zero_vec = 0;
 
-    // Linear for now.
     while(*str != 0)
     {
-        str++;
-        len++;
-    }
+        const unsigned long long str_vec = *((const unsigned long long* const)str);
+        const unsigned long long mask = (((str_vec) - 0x0101010101010101llu) & ~(str_vec) & 0x8080808080808080llu);
+        //#define haszero(v) (((v) - 0x01010101UL) & ~(v) & 0x80808080UL)
+        
+        if(mask != 0)
+            return len + (std::countr_zero(mask) / 8);
     
-    return len;
+        str += 8;
+        len += 8;
+    }
 
+    return 0;
 #endif//
 }
 
@@ -444,9 +450,10 @@ static SONICSTR_INLINE size_t str_len( const char* str ) SONICSTR_NOEXCEPT
 // Checks for NULL INPUT...
 static SONICSTR_INLINE size_t str_len_s( const char* str ) SONICSTR_NOEXCEPT
 {
-    if(!str)
+    if(!str || *str == 0)
         return 0;
-    return simd_str_cmp( str );
+        
+    return simd_swar_str_len( str );
 }
 
 static SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
