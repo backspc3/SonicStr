@@ -9,8 +9,8 @@ inline void print_bool( bool state )
 int main(int argc, char** argv)
 {
 
-    const char* a = "aaaaa";
-    const char* b = "bbbbb";
+    const char* a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const char* b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     size_t alen = strlen( a );
 
@@ -23,10 +23,19 @@ int main(int argc, char** argv)
     volatile bool res = Sonic::str_cmp( a, b, alen );  
     print_bool( res );
     
-    print_bool(Sonic::str_str(haystack, haystack_len, needle, needle_len ));
-    print_bool(Sonic::str_chr(haystack, haystack_len, 'Z'));
+    char* str_at = Sonic::str_str(haystack, haystack_len, needle, needle_len );
+    char* chr_at = Sonic::str_chr(haystack, haystack_len, 'Z');
+    
+    print_bool(str_at);
+    print_bool(chr_at);
 
-    size_t nelen = Sonic::simd_swar_str_len( haystack );
+    if(str_at)
+        printf("%s\n", str_at);
+        
+    if(chr_at)
+        printf("%c\n", *chr_at);
+
+    const size_t nelen = Sonic::str_len( haystack );
     
     printf("SIMD: %zu, NON SIMD: %zu\n", nelen, haystack_len);
     

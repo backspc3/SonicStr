@@ -43,35 +43,13 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
     // 32 byte blocks.
     while (aLen > 32)
     {
-        // AND(&) left and right values ( _A str chunk && _B str chunk )
-        // to extract mask:
-
-        //   +-----------+    +-----------+
-        //   | 0100 0110 |    | 0100 0110 |
-        //   |           |    |           |
-        //   |     &     |    |     &     |
-        //   |           |    |           |
-        //   | 0100 0110 |    | 1000 0110 |
-        //   +-----------+    +-----------+
-        //         |                |
-        //         |                |
-        //     0100 0110        0000 0110
-
-        // So if result of AND is equal to either of inputs it means
-        // the chunks are equal.
-
-        // We run the resulting output and either left or right through
-        // the cmpeq routine, which will for each byte in the vector
-        // either output 0 or 0xff and add it. If the inputs are equal
-        // value must be 0xffffffff.
-
         // Load 32 chars of both _A and _B.
         const __m256i left    = _mm256_loadu_si256((__m256i* const)aStr);
         const __m256i right   = _mm256_loadu_si256((__m256i* const)bStr);
+        // COMPARE.
+        const __m256i cmp     = _mm256_cmpeq_epi8(left, right);
 
-        const __m256i res_and = _mm256_and_si256(left, right);
-        const __m256i cmp     = _mm256_cmpeq_epi8(res_and, left);
-
+        // MASKOUT.
         if (_mm256_movemask_epi8(cmp) != 0xffffffff)
             return false;
 
@@ -87,9 +65,8 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
         // Works like AVX but with 128 bits instead of 256.
         const __m128i left    = _mm_loadu_epi8((const void*)aStr);
         const __m128i right   = _mm_loadu_epi8((const void*)bStr);
-
-        const __m128i res_and = _mm_and_si128(left, right);
-        const __m128i cmp     = _mm_cmpeq_epi8(res_and, left);
+        // COMPARE
+        const __m128i cmp     = _mm_cmpeq_epi8(left, right);
 
         if (_mm_movemask_epi8(cmp) != 0xFFFF)
             return false;
@@ -109,8 +86,7 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
         const unsigned long long left    = *((const unsigned long long* const)aStr);
         const unsigned long long right   = *((const unsigned long long* const)bStr);
 
-        // If left masked by right is not equal to left
-        // we know this block is not EQUAL.
+        // COMPARE...
         if(left != right)
             return false;
 
@@ -178,8 +154,8 @@ static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, si
 #ifdef AVX2_SUPPORTED
 
     // Vectors holding first and last characters of needle
-    const __m256i needle_first_char_v = _mm256_set1_epi8( needle[0] );              // At begin - 0
-    const __m256i needle_last_char_v  = _mm256_set1_epi8( needle[needle_len - 1]);  // At end   - Len - 1
+    const __m256i needle_first_char_v = _mm256_set1_epi8( needle[0] );              // At begin -> 0
+    const __m256i needle_last_char_v  = _mm256_set1_epi8( needle[needle_len - 1]);  // At end   -> Len - 1
     
     // Iterate in blocks of 32.
     for(size_t i = 0; i < len; i += 32)
@@ -291,8 +267,9 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
         // so we return first bit set.
         if(mask != 0)
         {
-            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
-            return (size_t)bit_pos;
+            //const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
+            //return (size_t)bit_pos;
+            return ::Sonic::get_first_bit_set(mask);
         }
     
         str += 32;
