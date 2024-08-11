@@ -474,6 +474,76 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, cons
     return ::Sonic::str_cmp( aStr, bStr, aLen );
 }
 
+// Forward declare for string ops.
+struct StringBase;
+
+// Holds weak view into a Sonic string. This serves an important purpose:
+// -  It makes copying Sonic strings more lightweight, allowing for
+//    all the required operations we may desire, without carrying the burden
+//    of the SSO data that bloats original Sonic strings.
+
+// It is important to note that stringviews do not manage any lifetimes meaning:
+// - They do not allocate anything when created.
+// - They do not deallocate anything when destroyed.
+// - They do not in any way prevent the destruction of the original data.
+// - They do not prevent other threads of execution from destroying the
+//   original/parent string which actually holds/manages the data which the view
+//   points into.
+// - They dont allow to modify the original string data, only gives us a view into
+//   said data.
+
+// All this together means we can pass StringViews as values without worrying about copying or anything.
+struct StringView
+{
+    StringView( const StringBase& other )
+    {
+        construct_pointer_and_len(other);        
+    }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR const char* const c_str() const SONICSTR_NOEXCEPT
+    {
+        return static_cast<const char* const>(m_data);
+    }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT
+    {
+        return m_len;
+    }
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT;
+
+    template<typename type_t>
+    SONICSTR_INLINE bool contains(type_t& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        auto at = find( substr, pos );
+        return at != Sonic::npos;    
+    }
+
+    // C string substring search.
+    SONICSTR_INLINE size_t find(const char* substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
+    }
+
+    // Other Sonic strings.
+    SONICSTR_INLINE size_t find(StringView substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
+    }
+
+    // Characters.
+    SONICSTR_INLINE size_t find(char c, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::simd_swar_str_chr( m_data + pos, m_len - pos, c );
+    }
+
+
+private:
+    const char*    m_data;
+    unsigned short m_len;
+};
+
+
 // String base defines the base interface from which all template specialized Sonic strings
 // derive from. The way sonic string works is based on Ocornuts Str: https://github.com/ocornut/str
 
@@ -531,27 +601,11 @@ public:
     {
         return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
     }
-    SONICSTR_INLINE char* find_p(const char* substr, size_t pos = 0) SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_str( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
-    }
-    SONICSTR_INLINE const char* find_p(const char* substr, size_t pos = 0) const SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_str( m_data + pos, m_len - pos, substr, ::Sonic::str_len(substr) );
-    }
 
     // Other Sonic strings.
-    SONICSTR_INLINE size_t find(const StringBase& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    SONICSTR_INLINE size_t find(StringView substr, size_t pos = 0) const SONICSTR_NOEXCEPT
     {
         return ::Sonic::simd_swar_str_contains_needle( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
-    }
-    SONICSTR_INLINE char* find_p(const StringBase& substr, size_t pos = 0) SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_str( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
-    }
-    SONICSTR_INLINE const char* find_p(const StringBase& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_str( m_data + pos, m_len - pos, substr.c_str(), substr.len() );
     }
 
     // Characters.
@@ -559,15 +613,16 @@ public:
     {
         return ::Sonic::simd_swar_str_chr( m_data + pos, m_len - pos, c );
     }
-    SONICSTR_INLINE char* find_p(char c, size_t pos = 0) SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_chr( m_data + pos, m_len - pos, c );
-    }
-    SONICSTR_INLINE const char* find_p(char c, size_t pos = 0) const SONICSTR_NOEXCEPT
-    {
-        return ::Sonic::str_chr( m_data + pos, m_len - pos, c );
-    }
+    
+    // All contains overloads.
 
+    // Templated but only works with types which have find implemented.
+    template<typename type_t>
+    SONICSTR_INLINE bool contains(type_t& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+        auto at = find( substr, pos );
+        return at != Sonic::npos;    
+    }
     
     SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT { return m_len; }
     SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len()       SONICSTR_NOEXCEPT { return m_len; }
@@ -606,6 +661,12 @@ protected:
     unsigned short m_sso_size;
 };
 
+SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT
+{
+    m_data = other.c_str();
+    m_len = other.len();
+}
+
 template<unsigned short sz_t>
 struct String : public StringBase
 {
@@ -621,32 +682,6 @@ struct String : public StringBase
 private:
     char __buf[sz_t];
 
-};
-
-// Holds weak view into a Sonic string. This serves an important purpose:
-// -  It makes copying Sonic strings more lightweight, allowing for
-//    all the required operations we may desire, without carrying the burden
-//    of the SSO data that bloats original Sonic strings.
-
-// It is important to note that stringviews do not manage any lifetimes meaning:
-// - They do not allocate anything when created.
-// - They do not deallocate anything when destroyed.
-// - They do not in any way prevent the destruction of the original data.
-// - They do not prevent other threads of execution from destroying the
-//   original/parent string which actually holds/manages the data which the view
-//   points into.
-// - They dont allow to modify the original string data, only gives us a view into
-//   said data.
-struct StringView
-{
-    StringView( const StringBase& other )
-        : m_data( other.c_str() ), m_len( other.len() )
-    {
-    }
-
-private:
-    const char*    m_data;
-    unsigned short m_len;
 };
 
 using String8    = ::Sonic::String<8>;

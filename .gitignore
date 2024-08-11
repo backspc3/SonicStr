@@ -1,3 +1,8 @@
 *.exe
 *.obj
 *.asm
+*.pdb
+*.ilk
+.vs
+.vscode
+.idea

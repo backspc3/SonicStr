@@ -46,6 +46,8 @@ int main(int argc, char** argv)
     printf("SIZES: (8 - %zu)  (16 - %zu)   (32 - %zu)\n       (64 - %zu) (128 - %zu) (256 - %zu)\n", 
         sizeof(Sonic::String8), sizeof(Sonic::String16), sizeof(Sonic::String32),
         sizeof(Sonic::String64), sizeof(Sonic::String128), sizeof(Sonic::String256));
-    
+
+    print_bool( sampleA.contains(sampleB) );
+        
     return 0;
 }
