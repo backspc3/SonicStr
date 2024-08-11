@@ -22,12 +22,19 @@
     #endif
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+    #define SONICSTR_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER) && !defined(__clang__)
+    #define SONICSTR_INLINE __forceinline
+#else
+    #define SONICSTR_INLINE inline
+#endif
+
 #include <immintrin.h>
 #include <stdio.h>
 #include <cstring>
 #include <bit>
 
-#define SONICSTR_INLINE     inline
 #define SONICSTR_NOEXCEPT   noexcept
 #define SONICSTR_CONSTEXPR  constexpr
 
