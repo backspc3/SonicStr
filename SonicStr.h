@@ -629,20 +629,31 @@ public:
     // Set str version which utilizes C strings.
     SONICSTR_INLINE void set_str( const char* str ) SONICSTR_NOEXCEPT
     {
-        // safe internal free.
-        internal_free( m_data );
-        
-        // Compute string length.
-        m_len = static_cast<unsigned short>( ::Sonic::str_len( str ) );
-        m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
-        
-        // Copy data over.
-        memcpy( m_data, str, m_len + 1 );
+        const size_t strlen = static_cast<unsigned short>( ::Sonic::str_len( str ) );
+        do_set( str, strlen );
     }
     
     
     // Set str version which utilizes C strings.
     SONICSTR_INLINE void set_str( const char* str, size_t strlen ) SONICSTR_NOEXCEPT
+    {
+        do_set( str, strlen );
+    }
+
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( const ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
+    {
+        do_set( str.c_str(), str.len() );
+    }
+    
+    
+    // Set str version which utilizes C strings.
+    SONICSTR_INLINE void set_str( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+    {
+        do_set( str.c_str(), str.len() );
+    }
+
+    SONICSTR_INLINE void do_set( const char* str, size_t strlen ) SONICSTR_NOEXCEPT
     {
         // safe internal free.
         internal_free( m_data );
@@ -652,36 +663,7 @@ public:
         m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
         
         // Copy data over.
-        memcpy( m_data, str, m_len + 1 );
-    }
-
-    // Set str version which utilizes C strings.
-    SONICSTR_INLINE void set_str( const ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
-    {
-        // safe internal free.
-        internal_free( m_data );
-        
-        // Compute string length.
-        m_len = str.len();
-        m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
-        
-        // Copy data over.
-        memcpy( m_data, str.c_str(), m_len + 1 );
-    }
-    
-    
-    // Set str version which utilizes C strings.
-    SONICSTR_INLINE void set_str( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
-    {
-        // safe internal free.
-        internal_free( m_data );
-        
-        // Compute string length.
-        m_len = str.len();
-        m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
-        
-        // Copy data over.
-        memcpy( m_data, str.c_str(), m_len + 1 );
+        memcpy( m_data, str, m_len + 1 );    
     }
     
     // Append c string.
