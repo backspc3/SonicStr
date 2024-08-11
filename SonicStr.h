@@ -536,17 +536,8 @@ struct StringView
         return *this;
     }
 
-    SONICSTR_INLINE SONICSTR_CONSTEXPR const char* const c_str() const SONICSTR_NOEXCEPT
-    {
-        return static_cast<const char* const>(m_data);
-    }
-
-    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT
-    {
-        return m_len;
-    }
-
-    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT;
+    SONICSTR_INLINE SONICSTR_CONSTEXPR const char* const c_str() const SONICSTR_NOEXCEPT { return static_cast<const char* const>(m_data); }
+    SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT { return m_len; }
 
     template<typename type_t>
     SONICSTR_INLINE bool contains(type_t& substr, size_t pos = 0) const SONICSTR_NOEXCEPT
@@ -575,6 +566,8 @@ struct StringView
 
 
 private:
+    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT;
+
     const char*    m_data;
     unsigned short m_len;
 };
