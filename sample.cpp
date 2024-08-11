@@ -39,5 +39,13 @@ int main(int argc, char** argv)
     
     printf("SIMD: %zu, NON SIMD: %zu\n", nelen, haystack_len);
     
+    Sonic::String16 sampleA("IamTheBestA");
+    Sonic::String16 sampleB("IamTheBestB");
+    print_bool( sampleA.compare(sampleB) );
+    
+    printf("SIZES: (8 - %zu)  (16 - %zu)   (32 - %zu)\n       (64 - %zu) (128 - %zu) (256 - %zu)\n", 
+        sizeof(Sonic::String8), sizeof(Sonic::String16), sizeof(Sonic::String32),
+        sizeof(Sonic::String64), sizeof(Sonic::String128), sizeof(Sonic::String256));
+    
     return 0;
 }
