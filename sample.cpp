@@ -48,6 +48,21 @@ int main(int argc, char** argv)
         sizeof(Sonic::String64), sizeof(Sonic::String128), sizeof(Sonic::String256));
 
     print_bool( sampleA.contains(sampleB) );
+
+    const char* toAP = "WeAreTheBest";
+    printf("append: %zu\n", strlen(toAP));
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+    sampleA.append(toAP);
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+    sampleA.append(toAP);
+    printf("%s | L: %zu C: %zu\n", sampleA.c_str(), sampleA.len(), sampleA.cap());        
+
+    Sonic::String32 test(sampleB);
+
+    printf("Before: %s\n", sampleB.c_str());
+    sampleB = sampleA;
+    printf("After: %s\n", sampleB.c_str());
+    printf("%s\n", test.c_str());
         
     return 0;
 }
