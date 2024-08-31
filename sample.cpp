@@ -59,6 +59,13 @@ int main(int argc, char** argv)
 
     Sonic::String32 test(sampleB);
 
+    Sonic::String32 some_str( toAP );
+    Sonic::String32 out_data; // Default constructed.
+
+    // Should not fail.
+    some_str.trim( 'A', out_data );
+    printf("Trimmed: %s\n", out_data.c_str());
+
     printf("Before: %s\n", sampleB.c_str());
     sampleB = sampleA;
     printf("After: %s\n", sampleB.c_str());

@@ -37,6 +37,7 @@
 
 #define SONICSTR_NOEXCEPT   noexcept
 #define SONICSTR_CONSTEXPR  constexpr
+#define SONICSTR_ALIGN( A ) alignas(A)
 
 namespace Sonic
 {
@@ -797,6 +798,7 @@ protected:
             free(m_data);
     }
 
+    // Align to cache-boundary for SIMD loads
     char* m_data;
     unsigned short m_len;
     unsigned short m_cap;
@@ -821,14 +823,41 @@ struct String : public StringBase
 {
     static_assert( sz_t % 2 == 0 );
     
+    // Empty constructor.
+    String() : StringBase(sz_t)
+    {}
+
     // All constructors must call StringBase with provided 
     // sso size.
     SonicStringConstructor(const char*)
     SonicStringConstructor(const ::Sonic::StringBase&)
     SonicStringConstructor(::Sonic::StringView)
 
+    // Trims string by given delimiter, equal to calling find and constructing at
+    // found position.
+    SONICSTR_INLINE bool trim(char c, String& out, size_t pos = 0) const SONICSTR_NOEXCEPT
+    {
+       // Try to find ocurrance of char.
+       size_t at = find( c, pos );
+
+       // If found something.
+       if(at != ::Sonic::npos)
+       {
+	  char* tmp = m_data + at;
+	  // Since it is extracted from original
+	  // String, can assume NULL termination.
+
+	  // Does this in-place construct? Or does it have to copy?
+	  out = String(tmp);
+	  return true;
+       }
+
+       return false;
+    }
+
 private:
-    char __buf[sz_t];
+    // Align to cache boundary.
+    SONICSTR_ALIGN(64) char __buf[sz_t];
 
 };
 
