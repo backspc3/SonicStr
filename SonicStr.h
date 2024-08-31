@@ -496,6 +496,54 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, cons
     return ::Sonic::str_cmp( aStr, bStr, aLen );
 }
 
+// To iterate strings and other thingies.
+template<typename type_t>
+struct RawPtrIterator
+{
+    using iterator          = RawPtrIterator<type_t>;
+    // Iterator tags... Useful for <algorithm> funcs
+    using iterator_category = std::forward_iterator_tag;
+    using difference_type   = std::ptrdiff_t;
+    using value_type        = type_t;
+    using pointer           = value_type*;
+    using reference         = value_type&;
+
+    // Construct iterator from given ptr.
+    explicit RawPtrIterator( pointer p ) : m_ptr(p) {}
+
+    RawPtrIterator(const iterator& other)
+      : m_ptr(other.m_ptr) {}
+    
+    iterator& operator=(const iterator& other)
+    {
+        m_ptr = other.m_ptr;
+	return *this;
+    }
+
+    const reference operator*()  const { return *m_ptr; }
+    const pointer   operator->() const { return  m_ptr; }
+
+    iterator& operator++()
+    {
+        m_ptr++;
+	return *this;
+    }
+
+    iterator operator++(int) 
+    {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    friend bool operator== (const iterator& a, const iterator& b) { return a.m_ptr == b.m_ptr; };
+    friend bool operator!= (const iterator& a, const iterator& b) { return a.m_ptr != b.m_ptr; };
+
+private:
+    pointer m_ptr;
+};
+
+
 // Forward declare for string ops.
 struct StringBase;
 
@@ -551,6 +599,10 @@ struct StringView
         return *this;
     }
 
+    // You can iterate string views too.
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<const char> begin() const noexcept { return ::Sonic::RawPtrIterator(m_data); }
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<const char> end()   const noexcept { return ::Sonic::RawPtrIterator(m_data + m_len); }
+
     SONICSTR_INLINE SONICSTR_CONSTEXPR const char* const c_str() const SONICSTR_NOEXCEPT { return static_cast<const char* const>(m_data); }
     SONICSTR_INLINE SONICSTR_CONSTEXPR size_t len() const SONICSTR_NOEXCEPT { return m_len; }
 
@@ -585,53 +637,6 @@ private:
 
     const char*    m_data;
     unsigned short m_len;
-};
-
-// To iterate strings and other thingies.
-template<typename type_t>
-struct RawPtrIterator
-{
-    using iterator          = RawPtrIterator<type_t>;
-    // Iterator tags... Useful for <algorithm> funcs
-    using iterator_category = std::forward_iterator_tag;
-    using difference_type   = std::ptrdiff_t;
-    using value_type        = type_t;
-    using pointer           = value_type*;
-    using reference         = value_type&;
-
-    // Construct iterator from given ptr.
-    explicit RawPtrIterator( pointer p ) : m_ptr(p) {}
-
-    RawPtrIterator(const iterator& other)
-      : m_ptr(other.m_ptr) {}
-    
-    iterator& operator=(const iterator& other)
-    {
-        m_ptr = other.m_ptr;
-	return *this;
-    }
-
-    const reference operator*()  const { return *m_ptr; }
-    const pointer   operator->() const { return  m_ptr; }
-
-    iterator& operator++()
-    {
-        m_ptr++;
-	return *this;
-    }
-
-    iterator operator++(int) 
-    {
-      iterator tmp = *this;
-      ++(*this);
-      return tmp;
-    }
-
-    friend bool operator== (const iterator& a, const iterator& b) { return a.m_ptr == b.m_ptr; };
-    friend bool operator!= (const iterator& a, const iterator& b) { return a.m_ptr != b.m_ptr; };
-
-private:
-    pointer m_ptr;
 };
 
 // String base defines the base interface from which all template specialized Sonic strings
@@ -680,16 +685,9 @@ public:
         internal_free(m_data);
     }
 
-    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> begin() SONICSTR_NOEXCEPT
-    {
-        // Return iterator constructed at BEGIN of string.
-        return RawPtrIterator( m_data );
-    }
-
-    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> end() SONICSTR_NOEXCEPT
-    {
-        return RawPtrIterator( m_data + m_len );
-    }
+    // Return iterator constructed at BEGIN of string.
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> begin() const SONICSTR_NOEXCEPT { return RawPtrIterator( m_data ); }
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> end()   const SONICSTR_NOEXCEPT { return RawPtrIterator( m_data + m_len ); }
 
     // Clears memory, without freeing anything.
     SONICSTR_INLINE void clear() SONICSTR_NOEXCEPT
