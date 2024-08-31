@@ -498,7 +498,7 @@ struct StringBase;
 // -  It makes copying Sonic strings more lightweight, allowing for
 //    all the required operations we may desire, without carrying the burden
 //    of the SSO data that bloats original Sonic strings.
-
+//
 // It is important to note that stringviews do not manage any lifetimes meaning:
 // - They do not allocate anything when created.
 // - They do not deallocate anything when destroyed.
@@ -508,7 +508,7 @@ struct StringBase;
 //   points into.
 // - They dont allow to modify the original string data, only gives us a view into
 //   said data.
-
+//
 // All this together means we can pass StringViews as values without worrying about copying or anything.
 struct StringView
 {
