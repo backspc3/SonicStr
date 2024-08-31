@@ -95,5 +95,12 @@ int main(int argc, char** argv)
     printf("Copied STL string: %s\n", sonicstr.c_str());
     print_bool(sonicstr.compare(stlstr));
 
+    printf("Iterated string: \n\t");
+    for(auto& c : sonicstr)
+    {
+        printf("%c", c);
+    }
+    printf("\n");
+
     return 0;
 }

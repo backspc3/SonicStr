@@ -587,6 +587,52 @@ private:
     unsigned short m_len;
 };
 
+// To iterate strings and other thingies.
+template<typename type_t>
+struct RawPtrIterator
+{
+    using iterator          = RawPtrIterator<type_t>;
+    // Iterator tags... Useful for <algorithm> funcs
+    using iterator_category = std::forward_iterator_tag;
+    using difference_type   = std::ptrdiff_t;
+    using value_type        = type_t;
+    using pointer           = value_type*;
+    using reference         = value_type&;
+
+    // Construct iterator from given ptr.
+    explicit RawPtrIterator( pointer p ) : m_ptr(p) {}
+
+    RawPtrIterator(const iterator& other)
+      : m_ptr(other.m_ptr) {}
+    
+    iterator& operator=(const iterator& other)
+    {
+        m_ptr = other.m_ptr;
+	return *this;
+    }
+
+    const reference operator*()  const { return *m_ptr; }
+    const pointer   operator->() const { return  m_ptr; }
+
+    iterator& operator++()
+    {
+        m_ptr++;
+	return *this;
+    }
+
+    iterator operator++(int) 
+    {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    friend bool operator== (const iterator& a, const iterator& b) { return a.m_ptr == b.m_ptr; };
+    friend bool operator!= (const iterator& a, const iterator& b) { return a.m_ptr != b.m_ptr; };
+
+private:
+    pointer m_ptr;
+};
 
 // String base defines the base interface from which all template specialized Sonic strings
 // derive from. The way sonic string works is based on Ocornuts Str: https://github.com/ocornut/str
@@ -632,6 +678,17 @@ public:
     SONICSTR_INLINE ~StringBase()
     {
         internal_free(m_data);
+    }
+
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> begin() SONICSTR_NOEXCEPT
+    {
+        // Return iterator constructed at BEGIN of string.
+        return RawPtrIterator( m_data );
+    }
+
+    SONICSTR_INLINE ::Sonic::RawPtrIterator<char> end() SONICSTR_NOEXCEPT
+    {
+        return RawPtrIterator( m_data + m_len );
     }
 
     // Clears memory, without freeing anything.
