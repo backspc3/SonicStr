@@ -39,10 +39,19 @@
 #define SONICSTR_CONSTEXPR  constexpr
 #define SONICSTR_ALIGN( A ) alignas(A)
 
+#ifndef SONICSTR_MALLOC
+#define SONICSTR_MALLOC malloc
+#endif
+
+#ifndef SONICSTR_FREE
+#define SONICSTR_FREE free
+#endif
+
 namespace Sonic
 {
 
-static constexpr size_t npos = -1;
+// -1 as size_t.
+static constexpr size_t npos = (size_t)-1;
 
 // Internal comparison function which tries to use SIMD operations for string comparison.
 static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
@@ -620,6 +629,25 @@ public:
         internal_free(m_data);
     }
 
+    // Clears memory, without freeing anything.
+    SONICSTR_INLINE void clear() SONICSTR_NOEXCEPT
+    {
+        memset( m_data, 0, m_cap );
+        m_len = 0;
+    }
+
+    SONICSTR_INLINE char pop_back() SONICSTR_NOEXCEPT
+    {
+        char c = m_data[m_len];
+	m_data[--m_len] = 0;
+        return c;
+    }
+
+    SONICSTR_INLINE void push_back(char c) SONICSTR_NOEXCEPT
+    {
+        append(c);
+    }
+
     // Set str version which utilizes C strings.
     SONICSTR_INLINE void set_str( const char* str ) SONICSTR_NOEXCEPT
     {
@@ -653,7 +681,7 @@ public:
         internal_free( m_data );
         
         // Compute string length.
-        m_len = strlen;
+        m_len = (unsigned short)strlen; // Just cast...
         m_data = internal_alloc( m_len + 1 ); // No matter what, string will now have enough data, for string.
         
         // Copy data over.
@@ -669,12 +697,19 @@ public:
     
     SONICSTR_INLINE void append( ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
     {
-        do_append( str.c_str(), str.len() );
+        do_append( str.c_str(), (unsigned short)str.len() );
     }
     
     SONICSTR_INLINE void append( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
     {
-        do_append( str.c_str(), str.len() );
+        do_append( str.c_str(), (unsigned short)str.len() );
+    }
+
+    // Quick hack to support character appending.
+    SONICSTR_INLINE void append( char c ) SONICSTR_NOEXCEPT
+    {
+        //char copy = c;
+        do_append( static_cast<const char*>(&c), 1 );
     }
 
     SONICSTR_INLINE void do_append( const char* strptr, unsigned short strlen ) SONICSTR_NOEXCEPT
@@ -690,7 +725,7 @@ public:
             if(newlen > m_sso_size)
             {
                 // If so, reallocate with heap mem.
-                m_data = static_cast<char*>(malloc( newlen + 1 ));
+                m_data = static_cast<char*>(SONICSTR_MALLOC( newlen + 1 ));
                 memcpy( m_data, old_ptr, m_len );
                 m_cap = newlen + 1;
             }
@@ -765,16 +800,17 @@ protected:
     SONICSTR_INLINE bool is_data_local() SONICSTR_NOEXCEPT
     {
         return m_data == (reinterpret_cast<char*>(this) + sizeof(StringBase));
-    }    
+    }
 
     SONICSTR_INLINE void grow_amortized() SONICSTR_NOEXCEPT
     {
-        const size_t newsize = m_cap + (m_cap / grow_divisor);
-        const char* const old_ptr = m_data;
-        m_data = static_cast<char*>(malloc( newsize + 1 ));
+        const unsigned short newsize = (unsigned short)(m_cap + (m_cap / grow_divisor));
+        char* old_ptr = m_data;
+        m_data = static_cast<char*>(SONICSTR_MALLOC( newsize + 1 ));
         memcpy( m_data, old_ptr, m_len );
         m_data[newsize] = 0;
-        m_cap = newsize;
+        m_cap = newsize; // Just cast.... WILL CAP?
+	internal_free(old_ptr); // MUST FREE old MEM.
     }
 
     // Allocates string storage, either returning pointer to SSO data
@@ -789,13 +825,13 @@ protected:
         }
     
         m_cap = size;
-        return static_cast<char*>(malloc( size ));
+        return static_cast<char*>(SONICSTR_MALLOC( size ));
     }
     
     SONICSTR_INLINE void internal_free( char* data ) SONICSTR_NOEXCEPT
     {
-        if(m_data && !is_data_local())
-            free(m_data);
+        if(data && !is_data_local())
+            SONICSTR_FREE( data );
     }
 
     // Align to cache-boundary for SIMD loads
@@ -808,7 +844,7 @@ protected:
 SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT
 {
     m_data = other.c_str();
-    m_len = other.len();
+    m_len = (unsigned short)other.len();
 }
 
 // Helper..
@@ -833,6 +869,34 @@ struct String : public StringBase
     SonicStringConstructor(const ::Sonic::StringBase&)
     SonicStringConstructor(::Sonic::StringView)
 
+    // Chops self by given delimiter:
+    // test_str = "This is a test!".
+    //
+    // Chop by delimiter first i ocurrance with offset 0.
+    // test_str.chop(i, 0);
+    //
+    // String now becomes:
+    // test_str == "Th";
+    template<typename type_t>
+    SONICSTR_INLINE bool chop(type_t c, size_t pos = 0) SONICSTR_NOEXCEPT
+    {
+        size_t at = find(c, pos);
+
+	// Found at some pos.
+	if(at != ::Sonic::npos)
+	{
+	    // Is this illegal? I dont know...
+	    m_len = (unsigned short)(at - 1);
+	    // I guess this is safe since strings are always 
+	    // one byte longer for NULL termination.
+	    m_data[m_len] = 0;
+	    return true;
+	}
+
+	// Did not find C
+	return false;
+    }
+
     // Trims string by given delimiter, equal to calling find and constructing at
     // found position.
     SONICSTR_INLINE bool trim(char c, String& out, size_t pos = 0) const SONICSTR_NOEXCEPT
@@ -847,8 +911,8 @@ struct String : public StringBase
 	  // Since it is extracted from original
 	  // String, can assume NULL termination.
 
-	  // Does this in-place construct? Or does it have to copy?
-	  out = String(tmp);
+	  // Does this in-place construct? Move it.
+	  out = std::move(String(tmp));
 	  return true;
        }
 
@@ -857,7 +921,7 @@ struct String : public StringBase
 
 private:
     // Align to cache boundary.
-    SONICSTR_ALIGN(64) char __buf[sz_t];
+    char __buf[sz_t];
 
 };
 

@@ -8,6 +8,8 @@ inline void print_bool( bool state )
 
 int main(int argc, char** argv)
 {
+    (void)argc;
+    (void)argv;
 
     const char* a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const char* b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -65,7 +67,22 @@ int main(int argc, char** argv)
     // Should not fail.
     some_str.trim( 'A', out_data );
     printf("Trimmed: %s\n", out_data.c_str());
-
+    out_data.clear();
+    out_data.set_str("I am a test string!");
+    printf("Cleared and set: %s %zu\n", out_data.c_str(), out_data.len());
+    out_data.set_str("STRR!");
+    printf("Override set: %s %zu\n", out_data.c_str(), out_data.len());
+    out_data.chop('S');
+    printf("Chopped: %s %zu\n", out_data.c_str(), out_data.len());
+    out_data.push_back('Z');
+    out_data.push_back('z');
+    out_data.push_back('Z');
+    printf("Appended: %s %zu\n", out_data.c_str(), out_data.len());
+    char one = out_data.pop_back();
+    char two = out_data.pop_back();
+    printf("Popped: %s len: %zu :::", out_data.c_str(), out_data.len());
+    // Why does this not print anything?????
+    printf("%c %c\n", one, two);
     printf("Before: %s\n", sampleB.c_str());
     sampleB = sampleA;
     printf("After: %s\n", sampleB.c_str());
