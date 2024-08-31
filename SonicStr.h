@@ -910,9 +910,7 @@ struct String : public StringBase
 	  char* tmp = m_data + at;
 	  // Since it is extracted from original
 	  // String, can assume NULL termination.
-
-	  // Does this in-place construct? Move it.
-	  out = std::move(String(tmp));
+	  out = String(tmp);
 	  return true;
        }
 
