@@ -31,9 +31,14 @@
 #endif
 
 #include <immintrin.h>
-#include <stdio.h>
+//#include <stdio.h>
 #include <cstring>
 #include <bit>
+
+// Enables ops using std::string.
+#ifdef SONICSTR_ENABLE_STL_STRING
+#include <string>
+#endif//SONICSTR_ENABLE_STL_STRING
 
 #define SONICSTR_NOEXCEPT   noexcept
 #define SONICSTR_CONSTEXPR  constexpr
@@ -751,6 +756,15 @@ public:
         return ::Sonic::str_cmp( m_data, other.m_data, m_len );
     }
 
+#ifdef SONICSTR_ENABLE_STL_STRING
+
+    SONICSTR_INLINE SONICSTR_CONSTEXPR bool compare(const std::string& other) SONICSTR_NOEXCEPT
+    {
+        return ::Sonic::str_cmp( m_data, other.c_str(), m_len );
+    }
+
+#endif//
+
     // ALL FIND OVERLOADS.
     
     // C string substring search.
@@ -868,6 +882,21 @@ struct String : public StringBase
     SonicStringConstructor(const char*)
     SonicStringConstructor(const ::Sonic::StringBase&)
     SonicStringConstructor(::Sonic::StringView)
+
+#ifdef SONICSTR_ENABLE_STL_STRING
+
+    String( const std::string& str ) : StringBase(sz_t)
+    {
+        set_str( str.c_str() );
+    }
+
+    String& operator=(const std::string& other ) SONICSTR_NOEXCEPT
+    {
+        set_str( other.c_str() );
+        return *this;
+    }
+
+#endif//
 
     // Chops self by given delimiter:
     // test_str = "This is a test!".

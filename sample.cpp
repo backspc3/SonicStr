@@ -1,3 +1,4 @@
+#define SONICSTR_ENABLE_STL_STRING
 #include "SonicStr.h"
 #include <stdio.h>
 
@@ -88,5 +89,11 @@ int main(int argc, char** argv)
     printf("After: %s\n", sampleB.c_str());
     printf("%s\n", test.c_str());
         
+    Sonic::String32 sonicstr;
+    std::string stlstr("This is a test!");
+    sonicstr = stlstr;
+    printf("Copied STL string: %s\n", sonicstr.c_str());
+    print_bool(sonicstr.compare(stlstr));
+
     return 0;
 }
