@@ -652,8 +652,8 @@ private:
 // In this specific instance, we use a base class which holds a member variable called SSO_SIZE, which is provided
 // by the "child" class. This allows for customization of how much data we want to allow strings to hold before doing
 // heap allocations.
-// We basically trade off the size of the string, and therefore its cache locality for the avoidance of dynamic memory
-// allocations. This is useful in those cases where we may want to avoid heap allocations where possible.
+// We basically trade off the size of the string, for the avoidance of dynamic memory allocations. This is useful in 
+// those cases where we may want to avoid heap allocations where possible.
 struct StringBase
 {
 
