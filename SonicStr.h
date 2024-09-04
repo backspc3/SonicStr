@@ -427,6 +427,23 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
 #endif//
 }
 
+// Hashes DATA STREAM.
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+static SONICSTR_INLINE unsigned long long hash_fnv1a( const char* data, size_t datalen ) SONICSTR_NOEXCEPT
+{
+    unsigned long long hash = 0xcbf29ce484222325; // FNV_offset_basis
+    for(size_t i = 0; i < datalen; ++i)
+    {
+        // XOR hash value with
+        // current data byte.
+        hash ^= data[i];
+        // Multiply by magic prime
+        // number.
+        hash *= 0x100000001b3; // FNV_prime 
+    }
+    return hash;
+}
+
 // We dont do any sanity checks. We dont check if any
 // of the forwarded strings are NULL. We also expect
 // both strings to be the same length...
@@ -639,6 +656,12 @@ private:
     unsigned short m_len;
 };
 
+// hash using fnv1a SIMD.
+static SONICSTR_INLINE unsigned long long hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+{
+    return hash_fnv1a( str.c_str(), str.len() );
+}
+
 // String base defines the base interface from which all template specialized Sonic strings
 // derive from. The way sonic string works is based on Ocornuts Str: https://github.com/ocornut/str
 
@@ -699,7 +722,7 @@ public:
     SONICSTR_INLINE char pop_back() SONICSTR_NOEXCEPT
     {
         char c = m_data[m_len];
-	m_data[--m_len] = 0;
+	 m_data[--m_len] = 0;
         return c;
     }
 

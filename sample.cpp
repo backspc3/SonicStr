@@ -102,5 +102,9 @@ int main(int argc, char** argv)
     }
     printf("\n");
 
+    // Hash string.
+    unsigned long long hash = ::Sonic::hash( sonicstr );
+    printf("Hashed: %llu\n", hash);
+
     return 0;
 }
