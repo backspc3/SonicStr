@@ -30,488 +30,72 @@
     #define SONICSTR_INLINE inline
 #endif
 
-#include <immintrin.h>
-#include <stdint.h> // For sized integer types.
-#include <string.h>
-#include <bit>
+#include <immintrin.h>  // Intrinsics SIMD stuff.
+#include <stdint.h>     // For sized integer types.
+#include <string.h>     // For C runtime str methods.
+#include <iterator>     // For string iterator.
+#include <bit>          // For std::countr_zero and std::countl_zero.
 
 // Enables ops using std::string.
 #ifdef SONICSTR_ENABLE_STL_STRING
-#include <string>
+#include <string>       // std::string.
 #endif//SONICSTR_ENABLE_STL_STRING
 
 #define SONICSTR_NOEXCEPT   noexcept
 #define SONICSTR_CONSTEXPR  constexpr
 #define SONICSTR_ALIGN( A ) alignas(A)
 
-#ifndef SONICSTR_MALLOC
-#define SONICSTR_MALLOC malloc
-#endif
-
-#ifndef SONICSTR_FREE
-#define SONICSTR_FREE free
-#endif
-
 namespace Sonic
 {
 
 // -1 as size_t.
-static constexpr size_t npos = (size_t)-1;
-
-// Internal comparison function which tries to use SIMD operations for string comparison.
-static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
-{
-#ifdef AVX2_SUPPORTED
-    // 32 byte blocks.
-    while (aLen > 32)
-    {
-        // Load 32 chars of both _A and _B.
-        const __m256i left    = _mm256_loadu_si256((__m256i* const)aStr);
-        const __m256i right   = _mm256_loadu_si256((__m256i* const)bStr);
-        // COMPARE.
-        const __m256i cmp     = _mm256_cmpeq_epi8(left, right);
-
-        // MASKOUT.
-        if (_mm256_movemask_epi8(cmp) != 0xffffffff)
-            return false;
-
-        aLen -= 32;
-        aStr += 32;
-        bStr += 32;
-    }
-#endif//__AVX2__
-
-#ifdef SSE2_SUPPORTED
-    while (aLen > 16)
-    {
-        // Works like AVX but with 128 bits instead of 256.
-        const __m128i left    = _mm_loadu_epi8((const void*)aStr);
-        const __m128i right   = _mm_loadu_epi8((const void*)bStr);
-        // COMPARE
-        const __m128i cmp     = _mm_cmpeq_epi8(left, right);
-
-        if (_mm_movemask_epi8(cmp) != 0xFFFF)
-            return false;
-
-        // 16 bytes at a time.
-        aLen -= 16;
-        aStr += 16;
-        bStr += 16;
-    }
-#endif//__SSE2__
-
-    // 8 byte blocks.
-    // We can process in block of 64 bits.
-    while(aLen > 8)
-    {
-        // Cast to int64 and extract 8 bytes or 'chars' as 64 bit block.
-        const uint64_t left    = *((const uint64_t* const)aStr);
-        const uint64_t right   = *((const uint64_t* const)bStr);
-
-        // COMPARE...
-        if(left != right)
-            return false;
-
-        //....
-        aLen -= 8;
-        aStr += 8;
-        bStr += 8;
-    }
-
-    // 4 byte blocks.
-    while(aLen > 4)
-    {
-        // Do the same as above but cast to integer and process in groups of 4 bytes.
-        const uint32_t left    = *((const uint32_t* const)aStr);
-        const uint32_t right   = *((const uint32_t* const)bStr);
-
-        if(left != right)
-            return false;
-
-        //....
-        aLen -= 4;
-        aStr += 4;
-        bStr += 4;
-    }
-
-    // Remaining size 2 bytes not worth?
-    // Finish off any remaining bytes linearly.
-    while (aLen > 0)
-    {
-        if ((*aStr != *bStr))
-            return false;
-        aLen--;
-        aStr++;
-        bStr++;
-    }
-
-    return true;
-}
-
+static constexpr size_t npos = static_cast<size_t>(-1);
 
 template <typename T>
-static SONICSTR_INLINE SONICSTR_CONSTEXPR T clear_leftmost_set(const T value) SONICSTR_NOEXCEPT
+SONICSTR_INLINE SONICSTR_CONSTEXPR T clear_leftmost_set(const T value) SONICSTR_NOEXCEPT
 {
     return value & (value - 1);
 }
 
 
 template <typename T>
-static SONICSTR_INLINE SONICSTR_CONSTEXPR unsigned get_first_bit_set(const T value) SONICSTR_NOEXCEPT
+SONICSTR_INLINE SONICSTR_CONSTEXPR unsigned get_first_bit_set(const T value) SONICSTR_NOEXCEPT
 {
     return std::countr_zero(value);
 }
 
-// If we have AVX2 Instruction set defined, Sonic str wwill default
-// to avx algo. If we cannot find AVX2 instruction set, we will go with
-// SWAR method. 
-// Returns either index into haystack of needle if found. 
-// or
-// -1 as size_t or largest possible size_t if not found.
-
-// Based on:
-// http://0x80.pl/articles/simd-strfind.html
-static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
-{
-#ifdef AVX2_SUPPORTED
-
-    // Vectors holding first and last characters of needle
-    const __m256i needle_first_char_v = _mm256_set1_epi8( needle[0] );              // At begin -> 0
-    const __m256i needle_last_char_v  = _mm256_set1_epi8( needle[needle_len - 1]);  // At end   -> Len - 1
-    
-    // Iterate in blocks of 32.
-    for(size_t i = 0; i < len; i += 32)
-    {
-        // Extract chunks
-        //const __m256i str_block_first = _mm256_loadu_si256( (const __m256i*) str + i  );
-        //const __m256i str_block_last  = _mm256_loadu_si256( (const __m256i*) str + i + needle_len - 1);
-
-        const __m256i str_block_first = _mm256_loadu_si256( (const __m256i*)(str + i) );
-        const __m256i str_block_last  = _mm256_loadu_si256( (const __m256i*)(str + i + needle_len - 1) );
-
-    
-        // Compare extracted chunks with our character vectors
-        // holdin the first and last letters of the needle.
-        const __m256i equality_first = _mm256_cmpeq_epi8( needle_first_char_v, str_block_first );
-        const __m256i equality_last  = _mm256_cmpeq_epi8( needle_last_char_v, str_block_last );
-
-        // With this mask we extract the positions where we match with out needles first/last characters.    
-        uint32_t mask = _mm256_movemask_epi8( _mm256_and_si256( equality_first, equality_last ) );
-    
-        // While mask contains any set bits it means there are still possible locations
-        // where we can find the needle.
-        while(mask != 0)
-        {
-            // Extract index or position from the first found set bit.
-            const auto bit_pos = ::Sonic::get_first_bit_set( mask );
-            
-            // If needle maatches we have found it inside the chunk.
-            if( memcmp( str + i + bit_pos + 1, needle + 1, needle_len - 2 ) == 0)
-                return i + bit_pos;
-        
-            // If not, we clear given flagged position removing its set state.
-             mask = ::Sonic::clear_leftmost_set(mask);
-        }
-    }
-
-    // If we reach this, it means needle was not found :(
-    // Highest possible size_t value.
-    return ::Sonic::npos;
-#else
-    // If we cant find AVX instruction set, fallback to SWAR for now...
-    
-    // Construct "vectors" containing the first and last characters of our needle.
-    const uint64_t needle_first_char_v = 0x0101010101010101llu * (unsigned char)needle[0];
-    const uint64_t needle_last_char_v  = 0x0101010101010101llu * (unsigned char)needle[ needle_len - 1 ];
-
-    uint64_t* str_block_first = (uint64_t*)(str);
-    uint64_t* str_block_last  = (uint64_t*)(str + needle_len - 1);    
-
-    // Iterate in 8 byte (64 bit) blocks/chunks.
-    for(size_t i = 0; i < len; i += 8, str_block_first++, str_block_last++)
-    {
-    
-        const uint64_t equality = (*str_block_first ^ needle_first_char_v) | ( *str_block_last ^ needle_last_char_v );
-    
-        const uint64_t t0 = (~equality & 0x7f7f7f7f7f7f7f7fllu) + 0x0101010101010101llu;
-        const uint64_t t1 = (~equality & 0x8080808080808080llu);
-    
-        uint64_t zeros = t0 & t1;
-        size_t j = 0;
-        
-        while( zeros )
-        {
-            if(zeros & 0x80)
-            {
-                const char* sub_str = (char*)str_block_first + j + 1;
-                if(memcmp( sub_str, needle + 1, needle_len - 2 ) == 0)
-                    return i + j;
-            }
-            
-            zeros   >>= 8;
-            j       += 1;
-        }
-    }
-
-    // Highest possible size_t value.
-    return ::Sonic::npos;
-#endif
-}
-
-// Searches for first ocurrence of given char in string.
-static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
-{
-
-    // Build a vector formed with given char.
-    // Then iterate blocks.
-    // AND both vector and block
-    // If can find ocurrances in mask
-    // return leftmost ocurrance of character.
-
-    const char* const start_ptr = str;
-
-    // First attemp at finding.
-#ifdef  AVX2_SUPPORTED
-
-    // Populate vector with to search character
-    const __m256i avx_search_char_v = _mm256_set1_epi8( c );
-
-    while(len > 32)
-    {
-        // Extract current block and populate vector.
-        const __m256i current_block_vector = _mm256_loadu_si256( (const __m256i*)str );
-        // compare our character vector with current block.
-        const __m256i equality = _mm256_cmpeq_epi8( avx_search_char_v, current_block_vector );
-        // generate mask out of comparison result
-        const uint32_t mask = _mm256_movemask_epi8( equality );
-    
-        // if mask if not zero, we have found character == c
-        // so we return first bit set.
-        if(mask != 0)
-        {
-            //const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
-            //return (size_t)bit_pos;
-            return ::Sonic::get_first_bit_set(mask);
-        }
-    
-        str += 32;
-        len -= 32;
-    }
-
-#endif//__AVX2__
-
-#ifdef  SSE2_SUPPORTED
-
-    const __m128i sse_search_char_v = _mm_set1_epi8( c );
-
-    while(len > 16)
-    {
-        const __m128i current_block_v = _mm_loadu_epi8( (const void*)str );
-        const __m128i equality = _mm_cmpeq_epi( sse_search_char_v, current_block_v );
-    
-        const uint32_t mask = _mm_movemask_epi8(equality); 
-        
-        if(mask != 0)
-        {
-            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
-            return (size_t)bit_pos;
-        }
-    
-        str += 16;
-        len -= 16;
-    }
-
-#endif//__SSE2__
-/*
-    // I think this doesnt work...
-    /// @ TODO(BAK): IMPLEMENT SWAR BLOCK.
-    const uint64_t swar_search_char_v = 0x0101010101010101llu * (unsigned char)c;
-    
-    while(len > 8)
-    {    
-        const uint64_t current_block_v = *((const uint64_t* const)str);
-        const uint64_t mask = swar_search_char_v ^ current_block_v;
-        
-        if(mask != 0)
-        {
-            const auto bit_pos = ::Sonic::get_first_bit_set( mask ); 
-            return (size_t)bit_pos;
-        }
-    
-        str += 8;
-        len -= 8;
-    
-*/
-    // Make sure to linearly check remaining bytes...
-    while(len > 0)
-    {
-        if(*str++ == c)
-            return (str - start_ptr);
-        len--;
-    }
- 
-    // If cant find, return ::Sonic::npos or highest possible size_t val.
-    return ::Sonic::npos;
-}
-
-static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEXCEPT
-{
-
-    size_t len = 0;
-
-#ifdef AVX2_SUPPORTED
-
-    // Load 32 bytes at once
-    // We do not care if mem loading is out of bounds, since
-    // we are not writing in memory, we are simply reading and 
-    // querying for NULL bytes. So if string is of size 6 + 1(NULL BYTE) lets say
-    // we load it:
-    
-    // 'H' 'E' 'L' 'L' 'O' '!' '0' ... (garbage)
-    // VECTOR=( H E L L O ! 0 G x Z 0 g H f Z ...)
-    // still easy to find - ^
-    // Since we are querying for first appearing 0 byte
-    // we simply dont care about all that extra garbage
-    // we load.
-
-    const __m256i zero_vec = _mm256_setzero_si256();
-    // I dont know how to do this... safety check????
-    while(*str != 0)
-    {
-        const __m256i str_vec  = _mm256_loadu_si256( (const __m256i*)str );        
-        const __m256i equality = _mm256_cmpeq_epi8( zero_vec, str_vec );
-        const uint32_t mask = _mm256_movemask_epi8( equality );
-        if(mask != 0)
-            return len + ::Sonic::get_first_bit_set(mask);
-        str += 32;
-        len += 32;
-    }
-    return 0;
-    // I trust that we have SSE 2 on most modern x86 CPUS.
-#elif defined(SSE2_SUPPORTED)
-
-    const __m128i zero_vec = _mm_setzero_si128();
-    // I dont know how to do this... safety check????
-    while(*str != 0)
-    {
-        const __m128i str_vec  = _mm_loadu_epi8( (const void*)str );        
-        const __m128i equality = _mm_cmpeq_epi8( zero_vec, str_vec );
-        const uint32_t mask = _mm_movemask_epi8( equality );
-        if(mask != 0)
-            return len + ::Sonic::get_first_bit_set(mask);
-        str += 16;
-        len += 16;
-    }
-    
-    return 0;
-#else
-
-    // @ TODO: SWAR impl using zero in word trick:
-    // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-    const uint64_t zero_vec = 0;
-
-    while(*str != 0)
-    {
-        const uint64_t str_vec = *((const uint64_t* const)str);
-        const uint64_t mask = (((str_vec) - 0x0101010101010101llu) & ~(str_vec) & 0x8080808080808080llu);
-        //#define haszero(v) (((v) - 0x01010101UL) & ~(v) & 0x80808080UL)
-        
-        if(mask != 0)
-            return len + (std::countr_zero(mask) / 8);
-    
-        str += 8;
-        len += 8;
-    }
-
-    return 0;
-#endif//
-}
-
-// Hashes DATA STREAM.
-// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-static SONICSTR_INLINE uint64_t hash_fnv1a( const char* data, size_t datalen ) SONICSTR_NOEXCEPT
-{
-    uint64_t hash = 0xcbf29ce484222325; // FNV_offset_basis
-    for(size_t i = 0; i < datalen; ++i)
-    {
-        // XOR hash value with
-        // current data byte.
-        hash ^= data[i];
-        // Multiply by magic prime
-        // number.
-        hash *= 0x100000001b3; // FNV_prime 
-    }
-    return hash;
-}
-
+SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE uint64_t hash_fnv1a( const char* data, size_t datalen ) SONICSTR_NOEXCEPT;
 // We dont do any sanity checks. We dont check if any
 // of the forwarded strings are NULL. We also expect
 // both strings to be the same length...
 // Careful!!!! DANGEROUS!
-static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
-{
-    // Compare first character, if different simply ignore
-    // and move on....
-    if(*aStr != *bStr)
-        return false;
-        
-    return simd_str_cmp( aStr, bStr, aLen );
-}
-
-static SONICSTR_INLINE size_t str_len( const char* str ) SONICSTR_NOEXCEPT
-{
-    return simd_swar_str_len( str );
-}
-
+SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE size_t str_len( const char* str ) SONICSTR_NOEXCEPT;
 // Checks for NULL INPUT...
-static SONICSTR_INLINE size_t str_len_s( const char* str ) SONICSTR_NOEXCEPT
-{
-    if(!str || *str == 0)
-        return 0;
-        
-    return simd_swar_str_len( str );
-}
-
-static SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT
-{
-    const size_t idx = simd_swar_str_chr( str, len, c );
-    return ( idx != ::Sonic::npos ) ? (char*)(str + idx) : nullptr; 
-}
-
+SONICSTR_INLINE size_t str_len_s( const char* str ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT;
 // Looks for needle of len ´needle_len´ in string of len ´len´.
 // If needle is found, will return pointer to provided string
 // at begin of found needle, else will return nullptr.
-static SONICSTR_INLINE char* str_str( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
-{
-    // Call to find needle. using underlying Sonic function.
-    size_t idx = ::Sonic::simd_swar_str_contains_needle( str, len, needle, needle_len );
-
-    // If needle is found, return pointer to string at found needle position.
-    // If needle is not found, return nullptr.
-    return (idx != ::Sonic::npos) ? (char*)(str + idx) : nullptr;
-}
-
-
-static SONICSTR_INLINE SONICSTR_CONSTEXPR char* str_str_s( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT
-{
-    // Sanity checks for safe str str version.
-    if(!str || !needle || ( needle_len > len ) || str == needle)
-        return nullptr;
-
-    // Use underlying STR STR func.
-    return ::Sonic::str_str( str, len, needle, needle_len );
-}
-
+SONICSTR_INLINE char* str_str( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE SONICSTR_CONSTEXPR char* str_str_s( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT;
 // Safe sanity check version.
-static SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT
-{
-    // Sanity checks.
-    if(!aStr || !bStr)
-        return false;
-    
-    // I hope the compiler inlines this <3
-    return ::Sonic::str_cmp( aStr, bStr, aLen );
-}
+SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE size_t str_len( const char* str ) SONICSTR_NOEXCEPT;
+// Checks for NULL INPUT...
+SONICSTR_INLINE size_t str_len_s( const char* str ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE char* str_chr( const char* str, size_t len, char c ) SONICSTR_NOEXCEPT;
+// Looks for needle of len ´needle_len´ in string of len ´len´.
+// If needle is found, will return pointer to provided string
+// at begin of found needle, else will return nullptr.
+SONICSTR_INLINE char* str_str( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT;
+SONICSTR_INLINE SONICSTR_CONSTEXPR char* str_str_s( const char* str, size_t len, const char* needle, size_t needle_len ) SONICSTR_NOEXCEPT;
+// Safe sanity check version.
+SONICSTR_INLINE SONICSTR_CONSTEXPR bool str_cmp_s( const char* aStr, const char* bStr, size_t aLen ) SONICSTR_NOEXCEPT;
 
 // To iterate strings and other thingies.
 template<typename type_t>
@@ -560,8 +144,24 @@ private:
     pointer m_ptr;
 };
 
+// Default allocator uses malloc and free.
+struct StringDefaultAllocator
+{
+
+    inline void* allocate(size_t size) noexcept
+    {
+        return malloc(size);
+    }
+    
+    inline void deallocate(void* ptr) noexcept
+    {
+        free(ptr);
+    }
+
+};
 
 // Forward declare for string ops.
+template<typename allocator_t>
 struct StringBase;
 
 // Holds weak view into a Sonic string. This serves an important purpose:
@@ -573,20 +173,19 @@ struct StringBase;
 // - They do not allocate anything when created.
 // - They do not deallocate anything when destroyed.
 // - They do not in any way prevent the destruction of the original data.
-// - They do not prevent other threads of execution from destroying the
-//   original/parent string which actually holds/manages the data which the view
-//   points into.
 // - They dont allow to modify the original string data, only gives us a view into
 //   said data.
 //
-// All this together means we can pass StringViews as values without worrying about copying or anything.
+// All this together means we can pass StringViews as values without worrying about copying.
 struct StringView
 {
-    StringView( const StringBase& other )
+
+    // To allow strings with any allocator.
+    template<typename allocator_t>
+    StringView( const StringBase<allocator_t>& other )
     {
         construct_pointer_and_len(other);        
     }
-
 
     SONICSTR_INLINE StringView( const StringView& other ) SONICSTR_NOEXCEPT
         : m_data( other.m_data), m_len( other.m_len )
@@ -606,7 +205,6 @@ struct StringView
     {
         other.m_data = nullptr;
     }
-
 
     SONICSTR_INLINE StringView& operator=( StringView&& other) SONICSTR_NOEXCEPT
     {
@@ -648,18 +246,19 @@ struct StringView
         return ::Sonic::simd_swar_str_chr( m_data + pos, m_len - pos, c );
     }
 
-
 private:
-    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT;
+
+    template<typename allocator_t>
+    SONICSTR_INLINE SONICSTR_CONSTEXPR void construct_pointer_and_len( const StringBase<allocator_t>& other ) SONICSTR_NOEXCEPT;
 
     const char*    m_data;
     unsigned short m_len;
 };
 
 // hash using fnv1a SIMD.
-static SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
 {
-    return hash_fnv1a( str.c_str(), str.len() );
+    return ::Sonic::hash_fnv1a( str.c_str(), str.len() );
 }
 
 // String base defines the base interface from which all template specialized Sonic strings
@@ -677,10 +276,13 @@ static SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEP
 // heap allocations.
 // We basically trade off the size of the string, for the avoidance of dynamic memory allocations. This is useful in 
 // those cases where we may want to avoid heap allocations where possible.
+template<typename allocator_t = StringDefaultAllocator>
 struct StringBase
 {
 
 public:
+
+    using StringType = StringBase<allocator_t>;
 
     // This number is used to construct the growth factor of the string on heap grows.
     // In this case we have a amortized growth of 1.5 -> (SELF + SELF / 2).
@@ -691,13 +293,13 @@ public:
         : m_sso_size(sz), m_data(nullptr), m_len(0)
     {}
 
-    SONICSTR_INLINE StringBase( const StringBase& other ) SONICSTR_NOEXCEPT
+    SONICSTR_INLINE StringBase( const StringType& other ) SONICSTR_NOEXCEPT
         : m_sso_size( other.m_sso_size ) 
     {
         set_str( other );
     }
 
-    SONICSTR_INLINE StringBase& operator=( const StringBase& other) SONICSTR_NOEXCEPT
+    SONICSTR_INLINE StringType& operator=( const StringType& other) SONICSTR_NOEXCEPT
     {
         set_str( other );
         return *this;
@@ -746,7 +348,7 @@ public:
     }
 
     // Set str version which utilizes C strings.
-    SONICSTR_INLINE void set_str( const ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
+    SONICSTR_INLINE void set_str( const StringType& str ) SONICSTR_NOEXCEPT
     {
         do_set( str.c_str(), str.len() );
     }
@@ -778,7 +380,7 @@ public:
         do_append( str, strlen );
     }
     
-    SONICSTR_INLINE void append( ::Sonic::StringBase& str ) SONICSTR_NOEXCEPT
+    SONICSTR_INLINE void append( StringType& str ) SONICSTR_NOEXCEPT
     {
         do_append( str.c_str(), (unsigned short)str.len() );
     }
@@ -808,7 +410,7 @@ public:
             if(newlen > m_sso_size)
             {
                 // If so, reallocate with heap mem.
-                m_data = static_cast<char*>(SONICSTR_MALLOC( newlen + 1 ));
+                m_data = static_cast<char*>(m_allocator.allocate( newlen + 1 ));
                 memcpy( m_data, old_ptr, m_len );
                 m_cap = newlen + 1;
             }
@@ -829,7 +431,7 @@ public:
         }    
     }
     
-    SONICSTR_INLINE SONICSTR_CONSTEXPR bool compare(const StringBase& other) SONICSTR_NOEXCEPT
+    SONICSTR_INLINE SONICSTR_CONSTEXPR bool compare(const StringType& other) SONICSTR_NOEXCEPT
     {
         return ::Sonic::str_cmp( m_data, other.m_data, m_len );
     }
@@ -898,7 +500,7 @@ protected:
     {
         const unsigned short newsize = (unsigned short)(m_cap + (m_cap / grow_divisor));
         char* old_ptr = m_data;
-        m_data = static_cast<char*>(SONICSTR_MALLOC( newsize + 1 ));
+        m_data = static_cast<char*>(m_allocator.allocate( newsize + 1 ));
         memcpy( m_data, old_ptr, m_len );
         m_data[newsize] = 0;
         m_cap = newsize; // Just cast.... WILL CAP?
@@ -917,13 +519,13 @@ protected:
         }
     
         m_cap = size;
-        return static_cast<char*>(SONICSTR_MALLOC( size ));
+        return static_cast<char*>(m_allocator.allocate( size ));
     }
     
     SONICSTR_INLINE void internal_free( char* data ) SONICSTR_NOEXCEPT
     {
         if(data && !is_data_local())
-            SONICSTR_FREE( data );
+            m_allocator.deallocate( data );
     }
 
     // Align to cache-boundary for SIMD loads
@@ -931,9 +533,11 @@ protected:
     unsigned short m_len;
     unsigned short m_cap;
     unsigned short m_sso_size;
+    allocator_t m_allocator;
 };
 
-SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( const StringBase& other ) SONICSTR_NOEXCEPT
+template<typename allocator_t>
+SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( const StringBase<allocator_t>& other ) SONICSTR_NOEXCEPT
 {
     m_data = other.c_str();
     m_len = (unsigned short)other.len();
@@ -941,24 +545,30 @@ SONICSTR_INLINE SONICSTR_CONSTEXPR void StringView::construct_pointer_and_len( c
 
 // Helper..
 #define SonicStringConstructor( __Type ) \
-    String( __Type str ) : StringBase(sz_t) \
+    String( __Type str ) : BaseType(sz_t) \
     { \
         set_str(str); \
     }
 
-template<unsigned short sz_t>
-struct String : public StringBase
+template<unsigned short sz_t, typename allocator_t = StringDefaultAllocator>
+struct String : public StringBase<allocator_t>
 {
+    using BaseType = StringBase<allocator_t>;
+
     static_assert( sz_t % 2 == 0 );
     
     // Empty constructor.
-    String() : StringBase(sz_t)
+    String() : BaseType(sz_t)
     {}
 
-    // All constructors must call StringBase with provided 
-    // sso size.
+    // Bring set str to scope.
+    using BaseType::set_str;
+    using BaseType::m_len;
+    using BaseType::m_data;
+    using BaseType::find;
+
     SonicStringConstructor(const char*)
-    SonicStringConstructor(const ::Sonic::StringBase&)
+    SonicStringConstructor(const BaseType&)
     SonicStringConstructor(::Sonic::StringView)
 
 #ifdef SONICSTR_ENABLE_STL_STRING
@@ -1038,6 +648,9 @@ using String128  = ::Sonic::String<128>;
 using String256  = ::Sonic::String<256>;
 using String512  = ::Sonic::String<512>;
 using String1024 = ::Sonic::String<1024>;
+
+// To make main file prettier.
+#include "SonicSimd.inl"
 
 }
 

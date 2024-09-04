@@ -1,11 +1,27 @@
 #define SONICSTR_ENABLE_STL_STRING
 #include "SonicStr.h"
+#include "second.h"
 #include <stdio.h>
 
 inline void print_bool( bool state )
 {
     printf("%s\n", state ? "true" : "false" );
 } 
+
+struct my_allocator
+{
+
+    inline void* allocate(size_t size) noexcept
+    {
+        return malloc(size);
+    }
+    
+    inline void deallocate(void* ptr) noexcept
+    {
+        free(ptr);
+    }
+
+};
 
 int main(int argc, char** argv)
 {
@@ -105,6 +121,9 @@ int main(int argc, char** argv)
     // Hash string.
     unsigned long long hash = ::Sonic::hash( sonicstr );
     printf("Hashed: %llu\n", hash);
-
+    second::test t = second::do_test("this is a test!");
+    
+    Sonic::String<32, my_allocator> some("this is test");
+    
     return 0;
 }
