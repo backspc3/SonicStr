@@ -31,8 +31,8 @@
 #endif
 
 #include <immintrin.h>
-//#include <stdio.h>
-#include <cstring>
+#include <stdint.h> // For sized integer types.
+#include <string.h>
 #include <bit>
 
 // Enables ops using std::string.
@@ -105,8 +105,8 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
     while(aLen > 8)
     {
         // Cast to int64 and extract 8 bytes or 'chars' as 64 bit block.
-        const unsigned long long left    = *((const unsigned long long* const)aStr);
-        const unsigned long long right   = *((const unsigned long long* const)bStr);
+        const uint64_t left    = *((const uint64_t* const)aStr);
+        const uint64_t right   = *((const uint64_t* const)bStr);
 
         // COMPARE...
         if(left != right)
@@ -122,8 +122,8 @@ static SONICSTR_INLINE SONICSTR_CONSTEXPR bool simd_str_cmp( const char* aStr, c
     while(aLen > 4)
     {
         // Do the same as above but cast to integer and process in groups of 4 bytes.
-        const unsigned int left    = *((const unsigned int* const)aStr);
-        const unsigned int right   = *((const unsigned int* const)bStr);
+        const uint32_t left    = *((const uint32_t* const)aStr);
+        const uint32_t right   = *((const uint32_t* const)bStr);
 
         if(left != right)
             return false;
@@ -196,7 +196,7 @@ static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, si
         const __m256i equality_last  = _mm256_cmpeq_epi8( needle_last_char_v, str_block_last );
 
         // With this mask we extract the positions where we match with out needles first/last characters.    
-        unsigned int mask = _mm256_movemask_epi8( _mm256_and_si256( equality_first, equality_last ) );
+        uint32_t mask = _mm256_movemask_epi8( _mm256_and_si256( equality_first, equality_last ) );
     
         // While mask contains any set bits it means there are still possible locations
         // where we can find the needle.
@@ -221,22 +221,22 @@ static SONICSTR_INLINE size_t simd_swar_str_contains_needle( const char* str, si
     // If we cant find AVX instruction set, fallback to SWAR for now...
     
     // Construct "vectors" containing the first and last characters of our needle.
-    const unsigned long long needle_first_char_v = 0x0101010101010101llu * (unsigned char)needle[0];
-    const unsigned long long needle_last_char_v  = 0x0101010101010101llu * (unsigned char)needle[ needle_len - 1 ];
+    const uint64_t needle_first_char_v = 0x0101010101010101llu * (unsigned char)needle[0];
+    const uint64_t needle_last_char_v  = 0x0101010101010101llu * (unsigned char)needle[ needle_len - 1 ];
 
-    unsigned long long* str_block_first = (unsigned long long*)(str);
-    unsigned long long* str_block_last  = (unsigned long long*)(str + needle_len - 1);    
+    uint64_t* str_block_first = (uint64_t*)(str);
+    uint64_t* str_block_last  = (uint64_t*)(str + needle_len - 1);    
 
     // Iterate in 8 byte (64 bit) blocks/chunks.
     for(size_t i = 0; i < len; i += 8, str_block_first++, str_block_last++)
     {
     
-        const unsigned long long equality = (*str_block_first ^ needle_first_char_v) | ( *str_block_last ^ needle_last_char_v );
+        const uint64_t equality = (*str_block_first ^ needle_first_char_v) | ( *str_block_last ^ needle_last_char_v );
     
-        const unsigned long long t0 = (~equality & 0x7f7f7f7f7f7f7f7fllu) + 0x0101010101010101llu;
-        const unsigned long long t1 = (~equality & 0x8080808080808080llu);
+        const uint64_t t0 = (~equality & 0x7f7f7f7f7f7f7f7fllu) + 0x0101010101010101llu;
+        const uint64_t t1 = (~equality & 0x8080808080808080llu);
     
-        unsigned long long zeros = t0 & t1;
+        uint64_t zeros = t0 & t1;
         size_t j = 0;
         
         while( zeros )
@@ -283,7 +283,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
         // compare our character vector with current block.
         const __m256i equality = _mm256_cmpeq_epi8( avx_search_char_v, current_block_vector );
         // generate mask out of comparison result
-        const unsigned int mask = _mm256_movemask_epi8( equality );
+        const uint32_t mask = _mm256_movemask_epi8( equality );
     
         // if mask if not zero, we have found character == c
         // so we return first bit set.
@@ -309,7 +309,7 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
         const __m128i current_block_v = _mm_loadu_epi8( (const void*)str );
         const __m128i equality = _mm_cmpeq_epi( sse_search_char_v, current_block_v );
     
-        const unsigned int mask = _mm_movemask_epi8(equality); 
+        const uint32_t mask = _mm_movemask_epi8(equality); 
         
         if(mask != 0)
         {
@@ -325,12 +325,12 @@ static SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, ch
 /*
     // I think this doesnt work...
     /// @ TODO(BAK): IMPLEMENT SWAR BLOCK.
-    const unsigned long long swar_search_char_v = 0x0101010101010101llu * (unsigned char)c;
+    const uint64_t swar_search_char_v = 0x0101010101010101llu * (unsigned char)c;
     
     while(len > 8)
     {    
-        const unsigned long long current_block_v = *((const unsigned long long* const)str);
-        const unsigned long long mask = swar_search_char_v ^ current_block_v;
+        const uint64_t current_block_v = *((const uint64_t* const)str);
+        const uint64_t mask = swar_search_char_v ^ current_block_v;
         
         if(mask != 0)
         {
@@ -380,7 +380,7 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
     {
         const __m256i str_vec  = _mm256_loadu_si256( (const __m256i*)str );        
         const __m256i equality = _mm256_cmpeq_epi8( zero_vec, str_vec );
-        const unsigned int mask = _mm256_movemask_epi8( equality );
+        const uint32_t mask = _mm256_movemask_epi8( equality );
         if(mask != 0)
             return len + ::Sonic::get_first_bit_set(mask);
         str += 32;
@@ -396,7 +396,7 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
     {
         const __m128i str_vec  = _mm_loadu_epi8( (const void*)str );        
         const __m128i equality = _mm_cmpeq_epi8( zero_vec, str_vec );
-        const unsigned int mask = _mm_movemask_epi8( equality );
+        const uint32_t mask = _mm_movemask_epi8( equality );
         if(mask != 0)
             return len + ::Sonic::get_first_bit_set(mask);
         str += 16;
@@ -408,12 +408,12 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
 
     // @ TODO: SWAR impl using zero in word trick:
     // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-    const unsigned long long zero_vec = 0;
+    const uint64_t zero_vec = 0;
 
     while(*str != 0)
     {
-        const unsigned long long str_vec = *((const unsigned long long* const)str);
-        const unsigned long long mask = (((str_vec) - 0x0101010101010101llu) & ~(str_vec) & 0x8080808080808080llu);
+        const uint64_t str_vec = *((const uint64_t* const)str);
+        const uint64_t mask = (((str_vec) - 0x0101010101010101llu) & ~(str_vec) & 0x8080808080808080llu);
         //#define haszero(v) (((v) - 0x01010101UL) & ~(v) & 0x80808080UL)
         
         if(mask != 0)
@@ -429,9 +429,9 @@ static SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEX
 
 // Hashes DATA STREAM.
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-static SONICSTR_INLINE unsigned long long hash_fnv1a( const char* data, size_t datalen ) SONICSTR_NOEXCEPT
+static SONICSTR_INLINE uint64_t hash_fnv1a( const char* data, size_t datalen ) SONICSTR_NOEXCEPT
 {
-    unsigned long long hash = 0xcbf29ce484222325; // FNV_offset_basis
+    uint64_t hash = 0xcbf29ce484222325; // FNV_offset_basis
     for(size_t i = 0; i < datalen; ++i)
     {
         // XOR hash value with
@@ -657,7 +657,7 @@ private:
 };
 
 // hash using fnv1a SIMD.
-static SONICSTR_INLINE unsigned long long hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+static SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
 {
     return hash_fnv1a( str.c_str(), str.len() );
 }
