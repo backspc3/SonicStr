@@ -1,4 +1,5 @@
 #define SONICSTR_ENABLE_STL_STRING
+#define SONICSTR_SIMD // To enable simd???
 #include "SonicStr.h"
 #include "second.h"
 #include <stdio.h>
@@ -22,6 +23,42 @@ struct my_allocator
     }
 
 };
+
+// Dummy local arena like allocator.
+struct second_allocator
+{
+
+    inline void* allocate(size_t size) noexcept
+    {
+        return malloc(size);
+    }
+    
+    inline void deallocate(void* ptr) noexcept
+    {
+        free(ptr);
+    }
+
+    char* m_start;
+    char* m_cursor;
+    size_t m_size;
+};
+
+struct lock_free_arena
+{
+    // IMplement...
+};
+
+static lock_free_arena g_Arena;
+
+// Can simulate state-full but global like this.
+struct global_string_arena
+{
+    // Allocate:
+    // g_Arena.allocate();
+    
+    // Deallocate:
+    // .... Nothing.
+}; 
 
 int main(int argc, char** argv)
 {
@@ -118,12 +155,31 @@ int main(int argc, char** argv)
     }
     printf("\n");
 
-    // Hash string.
+    // Hash strings and string views.
     unsigned long long hash = ::Sonic::hash( sonicstr );
     printf("Hashed: %llu\n", hash);
     second::test t = second::do_test("this is a test!");
-    
-    Sonic::String<32, my_allocator> some("this is test");
+
+    // Can construct string using custom allocator.
+    // Can also forward allocator instance in constructor.
+    // Strings construct instances of their allocator types.
+    // So allocators can hold local state or "global" state.
+    // As such, they can make sizeof(String) grow.
+    my_allocator instance;
+    Sonic::String<32, my_allocator> some("custom allocator");
+    Sonic::String<32, my_allocator> some_other("this is test", instance);
+    Sonic::String<16> other("I am thebest");
+
+    Sonic::String<32, second_allocator> second_alloc("second allocator");
+
+    printf("Default alloc: %zu, \nCustom state-full dummy allocator: %zu\n", 
+        sizeof(Sonic::String<32>), sizeof(Sonic::String<32, second_allocator> ));
+
+    // String views can hold views into strings of different sizes
+    // and allocator types.
+    Sonic::StringView SomeView = some;
+    SomeView = some_other;
+    SomeView = other; 
     
     return 0;
 }

@@ -233,7 +233,7 @@ SONICSTR_INLINE size_t simd_swar_str_chr( const char* str, size_t len, char c ) 
     while(len > 16)
     {
         const __m128i current_block_v = _mm_loadu_epi8( (const void*)str );
-        const __m128i equality = _mm_cmpeq_epi( sse_search_char_v, current_block_v );
+        const __m128i equality = _mm_cmpeq_epi8( sse_search_char_v, current_block_v );
     
         const uint32_t mask = _mm_movemask_epi8(equality); 
         
@@ -334,8 +334,6 @@ SONICSTR_INLINE size_t simd_swar_str_len( const char* str ) SONICSTR_NOEXCEPT
 
     // @ TODO: SWAR impl using zero in word trick:
     // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-    const uint64_t zero_vec = 0;
-
     while(*str != 0)
     {
         const uint64_t str_vec = *((const uint64_t* const)str);

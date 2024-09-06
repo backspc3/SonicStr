@@ -1,12 +1,14 @@
 #ifndef SONICSTR_H
 #define SONICSTR_H
 
+// Check if SIMD is requested.
+#if defined(SONICSTR_SIMD)
 // Checks for SSE2 and AVX2 ....!!!
-#if defined(_MSC_VER) // Check if using MSVC
+#if defined(_MSC_VER)
     #if defined(_M_IX86_FP) && _M_IX86_FP >= 2
         #define SSE2_SUPPORTED
     #endif
-#elif defined(__GNUC__) // Check if using GCC
+#elif defined(__GNUC__)
     #if defined(__SSE2__)
         #define SSE2_SUPPORTED
     #endif
@@ -21,6 +23,7 @@
         #define AVX2_SUPPORTED
     #endif
 #endif
+#endif//SONICSTR_SIMD
 
 #if defined(__GNUC__) || defined(__clang__)
     #define SONICSTR_INLINE __attribute__((always_inline))
@@ -118,7 +121,7 @@ struct RawPtrIterator
     iterator& operator=(const iterator& other)
     {
         m_ptr = other.m_ptr;
-	return *this;
+        return *this;
     }
 
     const reference operator*()  const { return *m_ptr; }
@@ -127,14 +130,7 @@ struct RawPtrIterator
     iterator& operator++()
     {
         m_ptr++;
-	return *this;
-    }
-
-    iterator operator++(int) 
-    {
-      iterator tmp = *this;
-      ++(*this);
-      return tmp;
+        return *this;
     }
 
     friend bool operator== (const iterator& a, const iterator& b) { return a.m_ptr == b.m_ptr; };
@@ -255,12 +251,6 @@ private:
     unsigned short m_len;
 };
 
-// hash using fnv1a SIMD.
-SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
-{
-    return ::Sonic::hash_fnv1a( str.c_str(), str.len() );
-}
-
 // String base defines the base interface from which all template specialized Sonic strings
 // derive from. The way sonic string works is based on Ocornuts Str: https://github.com/ocornut/str
 
@@ -291,6 +281,10 @@ public:
 
     explicit SONICSTR_INLINE SONICSTR_CONSTEXPR StringBase( unsigned short sz ) SONICSTR_NOEXCEPT
         : m_sso_size(sz), m_data(nullptr), m_len(0)
+    {}
+
+    explicit SONICSTR_INLINE SONICSTR_CONSTEXPR StringBase( unsigned short sz, allocator_t alloc ) SONICSTR_NOEXCEPT
+        : m_sso_size(sz), m_data(nullptr), m_len(0), m_allocator( std::move(alloc) ) // Mov???
     {}
 
     SONICSTR_INLINE StringBase( const StringType& other ) SONICSTR_NOEXCEPT
@@ -504,7 +498,7 @@ protected:
         memcpy( m_data, old_ptr, m_len );
         m_data[newsize] = 0;
         m_cap = newsize; // Just cast.... WILL CAP?
-	internal_free(old_ptr); // MUST FREE old MEM.
+        internal_free(old_ptr); // MUST FREE old MEM.
     }
 
     // Allocates string storage, either returning pointer to SSO data
@@ -561,7 +555,8 @@ struct String : public StringBase<allocator_t>
     String() : BaseType(sz_t)
     {}
 
-    // Bring set str to scope.
+    // Bring required BaseType stuff
+    // to scope.
     using BaseType::set_str;
     using BaseType::m_len;
     using BaseType::m_data;
@@ -570,6 +565,12 @@ struct String : public StringBase<allocator_t>
     SonicStringConstructor(const char*)
     SonicStringConstructor(const BaseType&)
     SonicStringConstructor(::Sonic::StringView)
+
+    template<typename type_t>
+    String( type_t str, allocator_t alloc ) : BaseType(sz_t, alloc)
+    {
+        set_str(str);
+    }
 
 #ifdef SONICSTR_ENABLE_STL_STRING
 
@@ -598,20 +599,20 @@ struct String : public StringBase<allocator_t>
     SONICSTR_INLINE bool chop(type_t c, size_t pos = 0) SONICSTR_NOEXCEPT
     {
         size_t at = find(c, pos);
+        
+        // Found at some pos.
+        if(at != ::Sonic::npos)
+        {
+            // Is this illegal? I dont know...
+            m_len = (unsigned short)(at - 1);
+            // I guess this is safe since strings are always 
+            // one byte longer for NULL termination.
+            m_data[m_len] = 0;
+            return true;
+        }
 
-	// Found at some pos.
-	if(at != ::Sonic::npos)
-	{
-	    // Is this illegal? I dont know...
-	    m_len = (unsigned short)(at - 1);
-	    // I guess this is safe since strings are always 
-	    // one byte longer for NULL termination.
-	    m_data[m_len] = 0;
-	    return true;
-	}
-
-	// Did not find C
-	return false;
+        // Did not find C
+        return false;
     }
 
     // Trims string by given delimiter, equal to calling find and constructing at
@@ -620,24 +621,22 @@ struct String : public StringBase<allocator_t>
     {
        // Try to find ocurrance of char.
        size_t at = find( c, pos );
-
+    
        // If found something.
        if(at != ::Sonic::npos)
        {
-	  char* tmp = m_data + at;
-	  // Since it is extracted from original
-	  // String, can assume NULL termination.
-	  out = String(tmp);
-	  return true;
-       }
-
-       return false;
+            char* tmp = m_data + at;
+            // Since it is extracted from original
+            // String, can assume NULL termination.
+            out = String(tmp);
+            return true;
+        }
+        
+        return false;
     }
 
 private:
-    // Align to cache boundary.
     char __buf[sz_t];
-
 };
 
 using String8    = ::Sonic::String<8>;
@@ -648,6 +647,14 @@ using String128  = ::Sonic::String<128>;
 using String256  = ::Sonic::String<256>;
 using String512  = ::Sonic::String<512>;
 using String1024 = ::Sonic::String<1024>;
+
+// General use functions.
+
+// hash using fnv1a SIMD.
+SONICSTR_INLINE uint64_t hash( ::Sonic::StringView str ) SONICSTR_NOEXCEPT
+{
+    return ::Sonic::hash_fnv1a( str.c_str(), str.len() );
+}
 
 // To make main file prettier.
 #include "SonicSimd.inl"
