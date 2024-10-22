@@ -180,6 +180,17 @@ int main(int argc, char** argv)
     Sonic::StringView SomeView = some;
     SomeView = some_other;
     SomeView = other; 
+
+    Sonic::String32 left ("Hello, ");
+    Sonic::String32 right("World");
     
+    left += right;
+    left += '!';
+    
+    right = right + right;
+    
+    printf("%s\n", left.c_str());
+    printf("%s\n", right.c_str());
+
     return 0;
 }

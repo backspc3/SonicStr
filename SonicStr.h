@@ -483,6 +483,17 @@ public:
     
     SONICSTR_INLINE bool is_sso()       SONICSTR_NOEXCEPT { return is_data_local(); }
 
+    // Syntax sugar for concat.
+    SONICSTR_INLINE void operator+=( const StringType& other )    SONICSTR_NOEXCEPT { append( other ); }
+    SONICSTR_INLINE void operator+=( ::Sonic::StringView other )  SONICSTR_NOEXCEPT { append( other ); }
+    SONICSTR_INLINE void operator+=( const char* other)           SONICSTR_NOEXCEPT { append( other ); }
+    SONICSTR_INLINE void operator+=( char other )                 SONICSTR_NOEXCEPT { append( other ); }
+
+    SONICSTR_INLINE StringType& operator+( const StringType& other )   SONICSTR_NOEXCEPT { append( other ); return *this; }
+    SONICSTR_INLINE StringType& operator+( ::Sonic::StringView other ) SONICSTR_NOEXCEPT { append( other ); return *this; }
+    SONICSTR_INLINE StringType& operator+( const char* other )         SONICSTR_NOEXCEPT { append( other ); return *this; }
+    SONICSTR_INLINE StringType& operator+( char other )                SONICSTR_NOEXCEPT { append( other ); return *this; }
+
 protected:
 
     SONICSTR_INLINE bool is_data_local() SONICSTR_NOEXCEPT
